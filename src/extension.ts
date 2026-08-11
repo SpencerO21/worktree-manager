@@ -18,10 +18,19 @@ interface PendingSwitch {
   path: string;
   /** Sent to the worktree terminal once the window has come back up. */
   command?: string;
+  /** A worktree created moments ago has no restored terminal to wait for. */
+  fresh?: boolean;
   at: number;
 }
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+/** Returned from `activate` so integration tests can drive the live objects. */
+export interface WorktreeManagerApi {
+  getWorktrees(): Promise<Worktree[]>;
+  refresh(): Promise<void>;
+  terminals: TerminalManager;
+}
+
+export async function activate(context: vscode.ExtensionContext): Promise<WorktreeManagerApi> {
   const terminals = new TerminalManager();
   const provider = new WorktreeTreeProvider();
   const view = vscode.window.createTreeView('worktreeManager.tree', {
@@ -40,12 +49,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   /** Point this window (or a new one) at a worktree and give it its terminal. */
-  const switchTo = async (worktreePath: string, command?: string): Promise<void> => {
+  const switchTo = async (
+    worktreePath: string,
+    options: { command?: string; fresh?: boolean } = {},
+  ): Promise<void> => {
+    const { command, fresh } = options;
     const target = path.resolve(worktreePath);
 
     if (currentFolder() === target) {
       if (command || config().get<boolean>('openTerminalOnSwitch', true)) {
-        terminals.open(target, { command });
+        await terminals.open(target, { command, adopt: !fresh });
       }
       return;
     }
@@ -54,6 +67,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await context.globalState.update(PENDING_KEY, {
       path: target,
       command,
+      fresh,
       at: Date.now(),
     } satisfies PendingSwitch);
 
@@ -105,7 +119,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     if (currentFolder() === path.resolve(worktree.path)) {
-      terminals.open(worktree.path);
+      await terminals.open(worktree.path);
       return;
     }
     await context.globalState.update(PENDING_KEY, {
@@ -136,7 +150,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   register('worktreeManager.openTerminal', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (worktree) {
-      terminals.open(worktree.path);
+      await terminals.open(worktree.path);
     }
   });
 
@@ -146,7 +160,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     await refresh();
-    await switchTo(created);
+    await switchTo(created, { fresh: true });
   });
 
   register('worktreeManager.removeWorktree', async (node?: WorktreeNode) => {
@@ -190,20 +204,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       session.kind === 'claude'
         ? `${config().get<string>('claudeCommand', 'claude')} --resume ${session.id}`
         : `${config().get<string>('codexCommand', 'codex')} resume ${session.id}`;
-    await switchTo(session.cwd, command);
+    await switchTo(session.cwd, { command });
   });
 
   register('worktreeManager.newClaudeSession', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (worktree) {
-      terminals.open(worktree.path, { command: config().get<string>('claudeCommand', 'claude') });
+      await terminals.open(worktree.path, {
+        command: config().get<string>('claudeCommand', 'claude'),
+      });
     }
   });
 
   register('worktreeManager.newCodexSession', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (worktree) {
-      terminals.open(worktree.path, { command: config().get<string>('codexCommand', 'codex') });
+      await terminals.open(worktree.path, {
+        command: config().get<string>('codexCommand', 'codex'),
+      });
     }
   });
 
@@ -237,6 +255,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   await resumePendingSwitch(context, terminals);
   await updateStatus(status, provider);
+
+  return { getWorktrees: () => provider.getWorktrees(), refresh, terminals };
 }
 
 /**
@@ -270,7 +290,7 @@ async function resumePendingSwitch(
     .getConfiguration('worktreeManager')
     .get<boolean>('openTerminalOnSwitch', true);
   if (openOnSwitch || pending.command) {
-    terminals.open(pending.path, { command: pending.command });
+    await terminals.open(pending.path, { command: pending.command, adopt: !pending.fresh });
   }
 }
 
