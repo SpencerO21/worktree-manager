@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { findRepositories, listWorktrees, Worktree } from './git';
+import { findRepositories, listWorktrees, repoRootFor, Worktree } from './git';
 import { AgentSession, CodexIndex, sessionsForWorktree } from './sessions';
 
 export class WorktreeNode extends vscode.TreeItem {
@@ -8,22 +8,41 @@ export class WorktreeNode extends vscode.TreeItem {
     readonly worktree: Worktree,
     readonly isCurrent: boolean,
   ) {
+    // A worktree git has flagged as prunable has nothing left to open, so it is
+    // listed only so it can be cleared — flat, and clicking it offers removal.
+    const missing = worktree.prunable;
     super(
       path.basename(worktree.path) || worktree.path,
-      vscode.TreeItemCollapsibleState.Collapsed,
+      missing
+        ? vscode.TreeItemCollapsibleState.None
+        : vscode.TreeItemCollapsibleState.Collapsed,
     );
 
     const branch = worktree.detached
       ? `detached @ ${worktree.head?.slice(0, 8) ?? '?'}`
       : (worktree.branch ?? '(no branch)');
 
-    this.description = isCurrent ? `${branch} • current` : branch;
-    this.iconPath = new vscode.ThemeIcon(
-      worktree.isMain ? 'repo' : 'git-branch',
-      isCurrent ? new vscode.ThemeColor('charts.green') : undefined,
-    );
-    this.resourceUri = vscode.Uri.file(worktree.path);
-    this.contextValue = worktree.isMain ? 'worktree-main' : 'worktree';
+    this.description = missing
+      ? `${branch} • missing`
+      : isCurrent
+        ? `${branch} • current`
+        : branch;
+    this.iconPath = missing
+      ? new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'))
+      : new vscode.ThemeIcon(
+          worktree.isMain ? 'repo' : 'git-branch',
+          isCurrent ? new vscode.ThemeColor('charts.green') : undefined,
+        );
+    if (!missing) {
+      // Pointing at a directory that is gone leaves the row to file decorations
+      // for a path nothing can resolve.
+      this.resourceUri = vscode.Uri.file(worktree.path);
+    }
+    this.contextValue = missing
+      ? 'missing-worktree'
+      : worktree.isMain
+        ? 'worktree-main'
+        : 'worktree';
     this.tooltip = new vscode.MarkdownString(
       [
         `**${path.basename(worktree.path)}**`,
@@ -33,17 +52,25 @@ export class WorktreeNode extends vscode.TreeItem {
         `- Repository: \`${worktree.repoRoot}\``,
         worktree.isMain ? '- Primary working tree' : '',
         worktree.locked ? '- 🔒 Locked' : '',
-        worktree.prunable ? '- ⚠️ Prunable (directory missing)' : '',
+        missing
+          ? `- ⚠️ Directory is gone${worktree.prunableReason ? ` (${worktree.prunableReason})` : ''}. Only git's record of it is left — click to clear it.`
+          : '',
       ]
         .filter(Boolean)
         .join('\n'),
     );
 
-    this.command = {
-      command: 'worktreeManager.openWorktree',
-      title: 'Open Worktree',
-      arguments: [this],
-    };
+    this.command = missing
+      ? {
+          command: 'worktreeManager.removeWorktree',
+          title: 'Remove Missing Worktree',
+          arguments: [this],
+        }
+      : {
+          command: 'worktreeManager.openWorktree',
+          title: 'Open Worktree',
+          arguments: [this],
+        };
   }
 }
 
@@ -110,18 +137,24 @@ export class WorktreeTreeProvider implements vscode.TreeDataProvider<Node>, vsco
   }
 
   private async discover(): Promise<Worktree[]> {
-    const searchPaths = vscode.workspace
-      .getConfiguration('worktreeManager')
-      .get<string[]>('searchPaths', []);
+    const config = vscode.workspace.getConfiguration('worktreeManager');
+    const options = { prune: config.get<boolean>('pruneMissingWorktrees', true) };
+    const folders = (vscode.workspace.workspaceFolders ?? [])
+      .filter((folder) => folder.uri.scheme === 'file')
+      .map((folder) => folder.uri.fsPath);
 
-    const roots = new Set<string>(searchPaths);
-    for (const folder of vscode.workspace.workspaceFolders ?? []) {
-      if (folder.uri.scheme === 'file') {
-        roots.add(folder.uri.fsPath);
-      }
+    // Scoped to the open repository, discovery is just its own worktree family —
+    // `git worktree list` reports every sibling from any one of them.
+    if (config.get<string>('scope', 'currentRepository') === 'currentRepository') {
+      const roots = await Promise.all(folders.map(repoRootFor));
+      return listWorktrees(
+        [...new Set(roots.filter((root): root is string => !!root))],
+        options,
+      );
     }
 
-    return listWorktrees(await findRepositories([...roots]));
+    const roots = new Set<string>([...config.get<string[]>('searchPaths', []), ...folders]);
+    return listWorktrees(await findRepositories([...roots]), options);
   }
 
   dispose(): void {

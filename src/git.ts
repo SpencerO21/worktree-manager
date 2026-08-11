@@ -16,7 +16,10 @@ export interface Worktree {
   head?: string;
   detached: boolean;
   locked: boolean;
+  /** git considers the record stale — usually because the directory is gone. */
   prunable: boolean;
+  /** git's own explanation for `prunable`, e.g. "gitdir file points to non-existent location". */
+  prunableReason?: string;
   /** True for the repository's primary working tree (the one that owns .git). */
   isMain: boolean;
 }
@@ -77,25 +80,37 @@ async function isGitDir(dir: string): Promise<boolean> {
   }
 }
 
+export interface ListWorktreeOptions {
+  /**
+   * Clear stale records as they are found. Deleting a worktree's directory by hand
+   * leaves git still listing it forever; pruning is how git itself expects that to
+   * be cleaned up, and doing it here is what keeps the view honest.
+   */
+  prune?: boolean;
+}
+
 /**
  * Every worktree reachable from the given repositories, de-duplicated by real path.
  * Repositories that share a worktree set (any two worktrees of the same repo) each
  * report the whole family, so dedup is what makes multi-root scanning cheap.
  */
-export async function listWorktrees(repos: string[]): Promise<Worktree[]> {
+export async function listWorktrees(
+  repos: string[],
+  options: ListWorktreeOptions = {},
+): Promise<Worktree[]> {
   const byPath = new Map<string, Worktree>();
 
   const results = await Promise.all(
     repos.map(async (repo) => {
-      try {
-        const { stdout } = await exec('git', ['worktree', 'list', '--porcelain'], {
-          cwd: repo,
-          maxBuffer: 8 * 1024 * 1024,
-        });
-        return parseWorktreePorcelain(stdout, repo);
-      } catch {
-        return [] as Worktree[];
+      let worktrees = await readWorktrees(repo);
+      if (options.prune && worktrees.some((worktree) => worktree.prunable)) {
+        // git only prunes what it already reported as prunable, and never a locked
+        // worktree, so this cannot take out a tree that is merely inconvenient.
+        if (await tryPrune(repo)) {
+          worktrees = await readWorktrees(repo);
+        }
       }
+      return worktrees;
     }),
   );
 
@@ -107,13 +122,40 @@ export async function listWorktrees(repos: string[]): Promise<Worktree[]> {
       // Worktree directory is gone (prunable) — fall back to the reported path.
     }
     const existing = byPath.get(key);
-    // Prefer the record from the repo that actually owns the worktree.
-    if (!existing || (!existing.isMain && worktree.isMain)) {
+    // Prefer the record from the repo that actually owns the worktree, and a live
+    // record over a stale one (another repo may not have been pruned yet).
+    if (!existing || (existing.prunable && !worktree.prunable) || (!existing.isMain && worktree.isMain)) {
       byPath.set(key, worktree);
     }
   }
 
   return [...byPath.values()].sort(compareWorktrees);
+}
+
+async function readWorktrees(repo: string): Promise<Worktree[]> {
+  try {
+    const { stdout } = await exec('git', ['worktree', 'list', '--porcelain'], {
+      cwd: repo,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    return parseWorktreePorcelain(stdout, repo);
+  } catch {
+    return [];
+  }
+}
+
+/** `git worktree prune`, reporting whether it got the chance to do anything. */
+export async function pruneWorktrees(repo: string): Promise<void> {
+  await git(repo, ['worktree', 'prune']);
+}
+
+async function tryPrune(repo: string): Promise<boolean> {
+  try {
+    await pruneWorktrees(repo);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function compareWorktrees(a: Worktree, b: Worktree): number {
@@ -136,6 +178,19 @@ export async function git(cwd: string, args: string[]): Promise<string> {
     const diagnostic = lines.filter((line) => /^(fatal|error|warning):/i.test(line));
     const detail = (diagnostic.length ? diagnostic : lines.slice(-1)).join('\n');
     throw new Error(detail || String(error?.message ?? error) || `git ${args.join(' ')} failed`);
+  }
+}
+
+/**
+ * The working-tree root containing `dir`, or undefined when it is not in a repo.
+ * A linked worktree reports its own root, which is all `git worktree list` needs
+ * to report the whole family.
+ */
+export async function repoRootFor(dir: string): Promise<string | undefined> {
+  try {
+    return (await git(dir, ['rev-parse', '--show-toplevel'])).trim() || undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -206,7 +261,37 @@ export async function removeWorktree(repo: string, worktreePath: string, force: 
     args.push('--force');
   }
   args.push(worktreePath);
-  await git(repo, args);
+
+  try {
+    await git(repo, args);
+    return;
+  } catch (error) {
+    // `git worktree remove` wants a working tree that is actually there; when the
+    // directory has already been deleted by hand, some versions refuse outright
+    // (notably with --force). Pruning reaches the same end state — git forgets it.
+    if (await exists(worktreePath)) {
+      throw error;
+    }
+    await pruneWorktrees(repo);
+    if (await isRegistered(repo, worktreePath)) {
+      throw error;
+    }
+  }
+}
+
+async function exists(target: string): Promise<boolean> {
+  try {
+    await fsp.stat(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether `git worktree list` still reports `worktreePath` for this repository. */
+async function isRegistered(repo: string, worktreePath: string): Promise<boolean> {
+  const wanted = path.resolve(worktreePath);
+  return (await readWorktrees(repo)).some((worktree) => path.resolve(worktree.path) === wanted);
 }
 
 export function parseWorktreePorcelain(stdout: string, repoRoot: string): Worktree[] {
@@ -267,6 +352,7 @@ export function parseWorktreePorcelain(stdout: string, repoRoot: string): Worktr
       case 'prunable':
         if (current) {
           current.prunable = true;
+          current.prunableReason = value || undefined;
         }
         break;
     }

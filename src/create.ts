@@ -149,7 +149,7 @@ export async function createWorktree(worktrees: Worktree[]): Promise<string | un
 
   const template = vscode.workspace
     .getConfiguration('worktreeManager')
-    .get<string>('newWorktreePath', '{repoParent}/{repoName}-{branch}');
+    .get<string>('newWorktreePath', '~/projects/{repoName}-{branch}');
 
   const target = await vscode.window.showInputBox({
     title: 'New Worktree — location',

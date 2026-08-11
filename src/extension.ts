@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { createWorktree } from './create';
-import { removeWorktree, Worktree } from './git';
+import { pruneWorktrees, removeWorktree, Worktree } from './git';
 import { TerminalManager } from './terminals';
 import { SessionNode, WorktreeNode, WorktreeTreeProvider } from './tree';
 
@@ -16,10 +16,8 @@ const PENDING_TTL_MS = 5 * 60 * 1000;
 
 interface PendingSwitch {
   path: string;
-  /** Sent to the worktree terminal once the window has come back up. */
+  /** Run in the worktree once the window has come back up, if anything. */
   command?: string;
-  /** A worktree created moments ago has no restored terminal to wait for. */
-  fresh?: boolean;
   at: number;
 }
 
@@ -43,22 +41,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
 
   const config = () => vscode.workspace.getConfiguration('worktreeManager');
 
+  let refreshedAt = 0;
+  const AUTO_REFRESH_INTERVAL_MS = 5000;
+
   const refresh = async (): Promise<void> => {
+    refreshedAt = Date.now();
     provider.refresh();
+    const worktrees = await provider.getWorktrees();
+    // Drives the "Remove Missing Worktrees" button, which is only worth a slot in
+    // the title bar when there is something for it to clear.
+    await vscode.commands.executeCommand(
+      'setContext',
+      'worktreeManager.hasMissingWorktrees',
+      worktrees.some((worktree) => worktree.prunable),
+    );
     await updateStatus(status, provider);
   };
 
-  /** Point this window (or a new one) at a worktree and give it its terminal. */
+  /** A refresh for events that fire in bursts, skipped when one just happened. */
+  const autoRefresh = (): void => {
+    if (Date.now() - refreshedAt >= AUTO_REFRESH_INTERVAL_MS) {
+      void refresh();
+    }
+  };
+
+  /** Drives which of the two scope buttons the view title shows. */
+  const syncScopeContext = async (): Promise<void> => {
+    await vscode.commands.executeCommand(
+      'setContext',
+      'worktreeManager.allRepositories',
+      config().get<string>('scope', 'currentRepository') === 'searchPaths',
+    );
+  };
+
+  const setScope = async (scope: 'currentRepository' | 'searchPaths'): Promise<void> => {
+    await config().update('scope', scope, vscode.ConfigurationTarget.Global);
+    await syncScopeContext();
+    // The configuration listener refreshes the tree.
+  };
+
+  /** Point this window (or a new one) at a worktree. */
   const switchTo = async (
     worktreePath: string,
-    options: { command?: string; fresh?: boolean } = {},
+    options: { command?: string } = {},
   ): Promise<void> => {
-    const { command, fresh } = options;
+    const { command } = options;
     const target = path.resolve(worktreePath);
 
     if (currentFolder() === target) {
-      if (command || config().get<boolean>('openTerminalOnSwitch', true)) {
-        await terminals.open(target, { command, adopt: !fresh });
+      if (command) {
+        terminals.run(target, command);
       }
       return;
     }
@@ -67,7 +99,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
     await context.globalState.update(PENDING_KEY, {
       path: target,
       command,
-      fresh,
       at: Date.now(),
     } satisfies PendingSwitch);
 
@@ -99,6 +130,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
 
   register('worktreeManager.refresh', refresh);
 
+  register('worktreeManager.showAllRepositories', () => setScope('searchPaths'));
+  register('worktreeManager.showThisRepository', () => setScope('currentRepository'));
+
   register('worktreeManager.openWorktree', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (worktree) {
@@ -119,7 +153,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
       return;
     }
     if (currentFolder() === path.resolve(worktree.path)) {
-      await terminals.open(worktree.path);
       return;
     }
     await context.globalState.update(PENDING_KEY, {
@@ -150,7 +183,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
   register('worktreeManager.openTerminal', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (worktree) {
-      await terminals.open(worktree.path);
+      terminals.open(worktree.path);
     }
   });
 
@@ -160,7 +193,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
       return;
     }
     await refresh();
-    await switchTo(created, { fresh: true });
+    await switchTo(created);
   });
 
   register('worktreeManager.removeWorktree', async (node?: WorktreeNode) => {
@@ -174,12 +207,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
       );
       return;
     }
-    const choice = await vscode.window.showWarningMessage(
-      `Remove worktree ${path.basename(worktree.path)}?`,
-      { modal: true, detail: `${worktree.path}\n\nThe branch itself is kept.` },
-      'Remove',
-      'Force Remove',
-    );
+
+    // Nothing can be lost by clearing a worktree whose directory is already gone,
+    // so it asks once and does not offer a force variant.
+    const choice = worktree.prunable
+      ? await vscode.window.showWarningMessage(
+          `Remove missing worktree ${path.basename(worktree.path)}?`,
+          {
+            modal: true,
+            detail: `${worktree.path}\n\nThe directory is already gone. This clears git's record of it; the branch is kept.`,
+          },
+          'Remove',
+        )
+      : await vscode.window.showWarningMessage(
+          `Remove worktree ${path.basename(worktree.path)}?`,
+          { modal: true, detail: `${worktree.path}\n\nThe branch itself is kept.` },
+          'Remove',
+          'Force Remove',
+        );
     if (!choice) {
       return;
     }
@@ -193,6 +238,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
     }
     terminals.close(worktree.path);
     await refresh();
+  });
+
+  register('worktreeManager.pruneWorktrees', async () => {
+    const missing = (await provider.getWorktrees()).filter((worktree) => worktree.prunable);
+    if (missing.length === 0) {
+      void vscode.window.showInformationMessage('No missing worktrees to remove.');
+      return;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      missing.length === 1
+        ? `Remove missing worktree ${path.basename(missing[0].path)}?`
+        : `Remove ${missing.length} missing worktrees?`,
+      {
+        modal: true,
+        detail: `${missing.map((worktree) => worktree.path).join('\n')}\n\nThese directories are already gone. This clears git's record of them; their branches are kept.`,
+      },
+      'Remove',
+    );
+    if (choice !== 'Remove') {
+      return;
+    }
+
+    const failures: string[] = [];
+    for (const repo of new Set(missing.map((worktree) => worktree.repoRoot))) {
+      try {
+        await pruneWorktrees(repo);
+      } catch (error) {
+        failures.push(`${path.basename(repo)}: ${(error as Error).message}`);
+      }
+    }
+    for (const worktree of missing) {
+      terminals.close(worktree.path);
+    }
+    await refresh();
+
+    if (failures.length > 0) {
+      void vscode.window.showErrorMessage(`git worktree prune failed — ${failures.join('; ')}`);
+    }
   });
 
   register('worktreeManager.resumeSession', async (node?: SessionNode) => {
@@ -210,18 +293,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
   register('worktreeManager.newClaudeSession', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (worktree) {
-      await terminals.open(worktree.path, {
-        command: config().get<string>('claudeCommand', 'claude'),
-      });
+      terminals.run(worktree.path, config().get<string>('claudeCommand', 'claude'));
     }
   });
 
   register('worktreeManager.newCodexSession', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (worktree) {
-      await terminals.open(worktree.path, {
-        command: config().get<string>('codexCommand', 'codex'),
-      });
+      terminals.run(worktree.path, config().get<string>('codexCommand', 'codex'));
     }
   });
 
@@ -251,8 +330,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
         void refresh();
       }
     }),
+    // Worktrees come and go from terminals and from other windows. Re-reading git
+    // whenever the view is looked at again is what stops the list going stale
+    // without polling; the throttle keeps a burst of focus events to one read.
+    view.onDidChangeVisibility((event) => {
+      if (event.visible) {
+        autoRefresh();
+      }
+    }),
+    vscode.window.onDidChangeWindowState((state) => {
+      if (state.focused && view.visible) {
+        autoRefresh();
+      }
+    }),
   );
 
+  await syncScopeContext();
   await resumePendingSwitch(context, terminals);
   await updateStatus(status, provider);
 
@@ -260,8 +353,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
 }
 
 /**
- * Finish a switch started before the reload: the folder is now open, so the
- * worktree's terminal is (re)created and any queued command sent.
+ * Finish a switch started before the reload: the window is now showing the
+ * worktree, so bring the view back up and run anything that was queued.
  */
 async function resumePendingSwitch(
   context: vscode.ExtensionContext,
@@ -286,11 +379,15 @@ async function resumePendingSwitch(
   if (!fresh) {
     return;
   }
-  const openOnSwitch = vscode.workspace
-    .getConfiguration('worktreeManager')
-    .get<boolean>('openTerminalOnSwitch', true);
-  if (openOnSwitch || pending.command) {
-    await terminals.open(pending.path, { command: pending.command, adopt: !pending.fresh });
+
+  // Reveal first: a queued command opens a terminal, and that should end up
+  // with the focus rather than the view.
+  const config = vscode.workspace.getConfiguration('worktreeManager');
+  if (config.get<boolean>('revealViewOnSwitch', true)) {
+    await vscode.commands.executeCommand('workbench.view.extension.worktreeManager');
+  }
+  if (pending.command) {
+    terminals.run(pending.path, pending.command);
   }
 }
 
@@ -312,9 +409,10 @@ async function pickWorktree(
   const current = currentFolder();
   const picked = await vscode.window.showQuickPick(
     worktrees.map((worktree) => ({
-      label: `$(${worktree.isMain ? 'repo' : 'git-branch'}) ${path.basename(worktree.path)}`,
+      label: `$(${worktree.prunable ? 'warning' : worktree.isMain ? 'repo' : 'git-branch'}) ${path.basename(worktree.path)}`,
       description: [
         worktree.detached ? `detached @ ${worktree.head?.slice(0, 8) ?? '?'}` : worktree.branch,
+        worktree.prunable ? 'missing' : undefined,
         path.resolve(worktree.path) === current ? 'current' : undefined,
       ]
         .filter(Boolean)

@@ -4,21 +4,32 @@ import * as os from 'os';
 import * as path from 'path';
 import { runTests } from '@vscode/test-electron';
 
-/** A repository with a second worktree, for the extension to discover. */
-function buildFixture(): { root: string; repo: string } {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wt-fixture-'));
-  const projects = path.join(root, 'projects');
-  const repo = path.join(projects, 'demo');
-  fs.mkdirSync(repo, { recursive: true });
-
-  const git = (args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+function initRepo(dir: string): (args: string[]) => string {
+  fs.mkdirSync(dir, { recursive: true });
+  const git = (args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
   git(['init', '-b', 'main']);
   git(['config', 'user.email', 'test@example.com']);
   git(['config', 'user.name', 'Test']);
-  fs.writeFileSync(path.join(repo, 'README.md'), '# demo\n');
+  fs.writeFileSync(path.join(dir, 'README.md'), `# ${path.basename(dir)}\n`);
   git(['add', '.']);
   git(['commit', '-m', 'init']);
+  return git;
+}
+
+/**
+ * `demo` with a second worktree, plus an unrelated `other` repository alongside
+ * it — so scoping to the open repository is distinguishable from scanning the
+ * whole search path.
+ */
+function buildFixture(): { root: string; repo: string } {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wt-fixture-'));
+  const projects = path.join(root, 'projects');
+
+  const repo = path.join(projects, 'demo');
+  const git = initRepo(repo);
   git(['worktree', 'add', '-b', 'feature/x', path.join(projects, 'demo-feature-x')]);
+
+  initRepo(path.join(projects, 'other'));
 
   return { root, repo };
 }

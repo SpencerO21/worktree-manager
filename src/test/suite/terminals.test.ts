@@ -32,6 +32,9 @@ describe('TerminalManager', () => {
     return manager;
   };
 
+  // Terminals from earlier suites linger until VS Code finishes disposing them.
+  beforeEach(closeAllTerminals);
+
   afterEach(async () => {
     while (managers.length) {
       managers.pop()?.dispose();
@@ -39,9 +42,8 @@ describe('TerminalManager', () => {
     await closeAllTerminals();
   });
 
-  it('creates one terminal per worktree, rooted in it', async () => {
-    const manager = make();
-    const terminal = await manager.open(featureWorktree, { show: false });
+  it('opens a terminal rooted in the worktree', () => {
+    const terminal = make().open(featureWorktree, { show: false });
 
     assert.strictEqual(terminal.name, terminalName(featureWorktree));
     assert.strictEqual(named(featureWorktree).length, 1);
@@ -50,82 +52,48 @@ describe('TerminalManager', () => {
     assert.strictEqual(cwd, featureWorktree);
   });
 
-  it('reuses the terminal instead of opening a second one', async () => {
+  it('reveals the same terminal instead of opening a second one', () => {
     const manager = make();
-    const first = await manager.open(featureWorktree, { show: false });
-    const second = await manager.open(featureWorktree, { show: false });
+    const first = manager.open(featureWorktree, { show: false });
+    const second = manager.open(featureWorktree, { show: false });
 
     assert.strictEqual(second, first);
     assert.strictEqual(named(featureWorktree).length, 1);
   });
 
-  it('keeps worktrees on separate terminals', async () => {
+  it('keeps worktrees on separate terminals', () => {
     const manager = make();
-    const feature = await manager.open(featureWorktree, { show: false });
-    const main = await manager.open(mainWorktree, { show: false });
+    const feature = manager.open(featureWorktree, { show: false });
+    const main = manager.open(mainWorktree, { show: false });
 
     assert.notStrictEqual(feature, main);
     assert.strictEqual(named(featureWorktree).length, 1);
     assert.strictEqual(named(mainWorktree).length, 1);
   });
 
-  // The reload case: a new manager comes up in a window that already has the
-  // worktree's terminal, and must take it over rather than open a duplicate.
-  it('adopts a terminal that is already present', async () => {
-    const existing = vscode.window.createTerminal({
-      name: terminalName(featureWorktree),
-      cwd: featureWorktree,
-    });
-    await delay(100);
-
+  it('runs launched commands in the worktree terminal', () => {
     const manager = make();
-    const opened = await manager.open(featureWorktree, { show: false });
+    const opened = manager.open(featureWorktree, { show: false });
+    const used = manager.run(featureWorktree, 'true');
 
-    assert.strictEqual(opened, existing);
+    assert.strictEqual(used, opened);
     assert.strictEqual(named(featureWorktree).length, 1);
   });
 
-  // The race the grace period exists for: VS Code finishes restoring the
-  // terminal *after* the extension has activated and asked for it.
-  it('adopts a terminal restored after activation', async () => {
-    await closeAllTerminals();
-    const manager = make();
-
-    const pending = manager.open(featureWorktree, { show: false });
-    await delay(200);
-    const restored = vscode.window.createTerminal({
+  it('leaves terminals it did not open alone', () => {
+    const stranger = vscode.window.createTerminal({
       name: terminalName(featureWorktree),
       cwd: featureWorktree,
     });
-
-    const opened = await pending;
-    assert.strictEqual(opened, restored, 'did not adopt the restored terminal');
-    assert.strictEqual(named(featureWorktree).length, 1, 'opened a duplicate terminal');
-  });
-
-  it('creates its own terminal when no restore arrives', async () => {
-    await closeAllTerminals();
     const manager = make();
 
-    const opened = await manager.open(featureWorktree, { show: false });
-    assert.strictEqual(opened.name, terminalName(featureWorktree));
-    assert.strictEqual(named(featureWorktree).length, 1);
-  });
-
-  it('skips the restore wait for a freshly created worktree', async () => {
-    await closeAllTerminals();
-    const manager = make();
-
-    const started = Date.now();
-    await manager.open(featureWorktree, { show: false, adopt: false });
-    const elapsed = Date.now() - started;
-
-    assert.ok(elapsed < 300, `waited ${elapsed}ms before opening a terminal`);
+    assert.strictEqual(manager.get(featureWorktree), undefined);
+    assert.notStrictEqual(manager.open(featureWorktree, { show: false }), stranger);
   });
 
   it('closes a worktree terminal on request', async () => {
     const manager = make();
-    await manager.open(featureWorktree, { show: false });
+    manager.open(featureWorktree, { show: false });
     manager.close(featureWorktree);
     await delay(200);
 
