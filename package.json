@@ -1,0 +1,281 @@
+{
+  "name": "worktree-manager",
+  "displayName": "Worktree Manager",
+  "description": "List every git worktree, switch this window between them, and give each one its own terminal.",
+  "version": "0.0.1",
+  "publisher": "spencer",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "worktreeManager",
+          "title": "Worktrees",
+          "icon": "media/worktree.svg"
+        }
+      ]
+    },
+    "views": {
+      "worktreeManager": [
+        {
+          "id": "worktreeManager.tree",
+          "name": "Worktrees",
+          "icon": "media/worktree.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "worktreeManager.tree",
+        "contents": "No git worktrees found.\n\nWorktree Manager looks in your open folders and in the paths listed under the `worktreeManager.searchPaths` setting.\n\n[New Worktree](command:worktreeManager.createWorktree)\n[Open Settings](command:worktreeManager.openSettings)\n[Refresh](command:worktreeManager.refresh)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "worktreeManager.createWorktree",
+        "title": "New Worktree",
+        "category": "Worktrees",
+        "icon": "$(add)"
+      },
+      {
+        "command": "worktreeManager.switchWorktree",
+        "title": "Switch Worktree",
+        "category": "Worktrees",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "worktreeManager.openTerminal",
+        "title": "Open Terminal",
+        "category": "Worktrees",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "worktreeManager.removeWorktree",
+        "title": "Remove Worktree",
+        "category": "Worktrees",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "worktreeManager.refresh",
+        "title": "Refresh",
+        "category": "Worktrees",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "worktreeManager.openWorktree",
+        "title": "Switch to Worktree",
+        "category": "Worktrees",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "worktreeManager.openWorktreeCurrentWindow",
+        "title": "Open Worktree in Current Window",
+        "category": "Worktrees"
+      },
+      {
+        "command": "worktreeManager.openWorktreeNewWindow",
+        "title": "Open Worktree in New Window",
+        "category": "Worktrees"
+      },
+      {
+        "command": "worktreeManager.resumeSession",
+        "title": "Open Worktree and Resume Chat",
+        "category": "Worktrees",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "worktreeManager.newClaudeSession",
+        "title": "Start Claude Code Here",
+        "category": "Worktrees",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "worktreeManager.newCodexSession",
+        "title": "Start Codex Here",
+        "category": "Worktrees",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "worktreeManager.revealInOS",
+        "title": "Reveal in Finder",
+        "category": "Worktrees"
+      },
+      {
+        "command": "worktreeManager.copyPath",
+        "title": "Copy Path",
+        "category": "Worktrees"
+      },
+      {
+        "command": "worktreeManager.openSettings",
+        "title": "Open Worktree Manager Settings",
+        "category": "Worktrees"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "worktreeManager.resumeSession",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "worktreeManager.createWorktree",
+          "when": "view == worktreeManager.tree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "worktreeManager.refresh",
+          "when": "view == worktreeManager.tree",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "worktreeManager.openTerminal",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "inline@1"
+        },
+        {
+          "command": "worktreeManager.openWorktree",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "inline@2"
+        },
+        {
+          "command": "worktreeManager.openTerminal",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "1_new@0"
+        },
+        {
+          "command": "worktreeManager.newClaudeSession",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "1_new@1"
+        },
+        {
+          "command": "worktreeManager.newCodexSession",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "1_new@2"
+        },
+        {
+          "command": "worktreeManager.openWorktreeCurrentWindow",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "2_open@1"
+        },
+        {
+          "command": "worktreeManager.openWorktreeNewWindow",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "2_open@2"
+        },
+        {
+          "command": "worktreeManager.revealInOS",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "3_misc@1"
+        },
+        {
+          "command": "worktreeManager.copyPath",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "3_misc@2"
+        },
+        {
+          "command": "worktreeManager.removeWorktree",
+          "when": "view == worktreeManager.tree && viewItem == worktree",
+          "group": "9_danger@1"
+        },
+        {
+          "command": "worktreeManager.resumeSession",
+          "when": "view == worktreeManager.tree && viewItem == session",
+          "group": "inline@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Worktree Manager",
+      "properties": {
+        "worktreeManager.searchPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "~/projects"
+          ],
+          "markdownDescription": "Directories scanned for git repositories. Each entry is scanned one level deep, so `~/projects` picks up `~/projects/my-repo`. `~` is expanded. Worktrees are then discovered from every repository found here plus every folder open in this window."
+        },
+        "worktreeManager.openIn": {
+          "type": "string",
+          "enum": [
+            "newWindow",
+            "currentWindow"
+          ],
+          "enumDescriptions": [
+            "Open the worktree in a new VS Code window, leaving this one untouched.",
+            "Replace the folder in the current window."
+          ],
+          "default": "currentWindow",
+          "description": "Where clicking a worktree opens it. Switching in the current window reloads it — VS Code has no other way to point a window at a different folder — and the worktree's terminal is reopened once it comes back."
+        },
+        "worktreeManager.openTerminalOnSwitch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open (or reveal) the worktree's dedicated terminal after switching to it."
+        },
+        "worktreeManager.terminalStartupCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Command sent to a worktree terminal the first time it is created, e.g. `nvm use` or `npm install`. Existing terminals are never interrupted."
+        },
+        "worktreeManager.newWorktreePath": {
+          "type": "string",
+          "default": "{repoParent}/{repoName}-{branch}",
+          "markdownDescription": "Default directory for worktrees created from the view. Supports `{repoPath}`, `{repoParent}`, `{repoName}` and `{branch}` (slashes in the branch become dashes). The resolved path is always shown for editing before the worktree is created."
+        },
+        "worktreeManager.showSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Claude Code and Codex chats associated with each worktree as expandable children."
+        },
+        "worktreeManager.maxSessionsPerWorktree": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "description": "How many recent chats to list under each worktree."
+        },
+        "worktreeManager.claudeCommand": {
+          "type": "string",
+          "default": "claude",
+          "description": "Command used to launch Claude Code."
+        },
+        "worktreeManager.codexCommand": {
+          "type": "string",
+          "default": "codex",
+          "description": "Command used to launch Codex."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "compile": "tsc --noEmit",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  }
+}
