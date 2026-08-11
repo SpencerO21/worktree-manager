@@ -61,3 +61,18 @@ npm test          # integration tests in a real VS Code instance
 
 Press `F5` to launch the Extension Development Host. `npm run compile` typechecks,
 `npm run package` builds a `.vsix`.
+
+## Install a build
+
+Grab the `.vsix` from the [latest release](https://github.com/SpencerO21/worktree-manager/releases/latest)
+and install it — it is self-contained, so there is nothing to build:
+
+```sh
+code --install-extension worktree-manager-0.0.6.vsix
+```
+
+Reload the window afterwards.
+
+## License
+
+[MIT](LICENSE).
