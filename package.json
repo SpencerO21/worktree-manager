@@ -2,7 +2,7 @@
   "name": "worktree-manager",
   "displayName": "Worktree Manager",
   "description": "List the worktrees of the repository you are in and switch this window between them.",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "spencer",
   "private": true,
   "license": "MIT",
