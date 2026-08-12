@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { TerminalManager, terminalName } from '../../terminals';
+import { appTerminalName, TerminalManager, terminalName } from '../../terminals';
 
 const projects = path.join(process.env.WT_FIXTURE_ROOT ?? '', 'projects');
 const featureWorktree = path.join(projects, 'demo-feature-x');
@@ -80,6 +80,32 @@ describe('TerminalManager', () => {
     assert.strictEqual(named(featureWorktree).length, 1);
   });
 
+  it('runs app commands in dedicated terminals and reuses them', () => {
+    const manager = make();
+    const first = manager.runApp(featureWorktree, ['true', 'true'], {
+      cwd: featureWorktree,
+      env: { WORKTREE_WORKSPACE_NAME: 'demo-feature-x' },
+    });
+    const second = manager.runApp(featureWorktree, ['false']);
+
+    assert.strictEqual(first.length, 2);
+    assert.strictEqual(second, first);
+    assert.strictEqual(first[0].name, appTerminalName(featureWorktree));
+    assert.strictEqual(first[1].name, appTerminalName(featureWorktree, 1));
+    const options = first[0].creationOptions as vscode.TerminalOptions;
+    assert.strictEqual(options.cwd, featureWorktree);
+    assert.strictEqual(options.env?.WORKTREE_WORKSPACE_NAME, 'demo-feature-x');
+  });
+
+  it('keeps app terminals separate from the ordinary worktree terminal', () => {
+    const manager = make();
+    const shell = manager.open(featureWorktree, { show: false });
+    const [app] = manager.runApp(featureWorktree, ['true']);
+
+    assert.notStrictEqual(shell, app);
+    assert.strictEqual(manager.showApp(featureWorktree), true);
+  });
+
   it('leaves terminals it did not open alone', () => {
     const stranger = vscode.window.createTerminal({
       name: terminalName(featureWorktree),
@@ -99,5 +125,6 @@ describe('TerminalManager', () => {
 
     assert.strictEqual(named(featureWorktree).length, 0);
     assert.strictEqual(manager.get(featureWorktree), undefined);
+    assert.strictEqual(manager.showApp(featureWorktree), false);
   });
 });

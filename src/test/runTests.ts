@@ -27,6 +27,18 @@ function buildFixture(): { root: string; repo: string } {
 
   const repo = path.join(projects, 'demo');
   const git = initRepo(repo);
+  fs.mkdirSync(path.join(repo, '.worktrees'));
+  fs.writeFileSync(
+    path.join(repo, '.worktrees/config.json'),
+    JSON.stringify({
+      setup: [
+        `node -e "require('fs').writeFileSync('.setup-ran', process.env.SUPERSET_ROOT_PATH || '')"`,
+      ],
+      run: [],
+    }),
+  );
+  git(['add', '.worktrees/config.json']);
+  git(['commit', '-m', 'add worktree lifecycle fixture']);
   git(['worktree', 'add', '-b', 'feature/x', path.join(projects, 'demo-feature-x')]);
 
   initRepo(path.join(projects, 'other'));

@@ -1,11 +1,15 @@
 {
   "name": "worktree-manager",
   "displayName": "Worktree Manager",
-  "description": "List the worktrees of the repository you are in and switch this window between them.",
-  "version": "0.0.6",
+  "description": "List the worktrees of the repository you are in and open them in dedicated windows.",
+  "version": "0.0.7",
   "publisher": "spencer",
   "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SpencerO21/worktree-manager.git"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -66,6 +70,18 @@
         "title": "Open Terminal",
         "category": "Worktrees",
         "icon": "$(terminal)"
+      },
+      {
+        "command": "worktreeManager.runWorktree",
+        "title": "Run App",
+        "category": "Worktrees",
+        "icon": "$(play)"
+      },
+      {
+        "command": "worktreeManager.setupWorktree",
+        "title": "Setup Worktree",
+        "category": "Worktrees",
+        "icon": "$(tools)"
       },
       {
         "command": "worktreeManager.removeWorktree",
@@ -152,6 +168,10 @@
     "menus": {
       "commandPalette": [
         {
+          "command": "worktreeManager.openWorktreeCurrentWindow",
+          "when": "false"
+        },
+        {
           "command": "worktreeManager.resumeSession",
           "when": "false"
         }
@@ -200,19 +220,34 @@
           "group": "1_open@2"
         },
         {
-          "command": "worktreeManager.openTerminal",
+          "command": "worktreeManager.runWorktree",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "inline@2"
+        },
+        {
+          "command": "worktreeManager.runWorktree",
           "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
           "group": "2_new@1"
         },
         {
-          "command": "worktreeManager.newClaudeSession",
+          "command": "worktreeManager.setupWorktree",
           "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
           "group": "2_new@2"
         },
         {
-          "command": "worktreeManager.newCodexSession",
+          "command": "worktreeManager.openTerminal",
           "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
           "group": "2_new@3"
+        },
+        {
+          "command": "worktreeManager.newClaudeSession",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "2_new@4"
+        },
+        {
+          "command": "worktreeManager.newCodexSession",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "2_new@5"
         },
         {
           "command": "worktreeManager.revealInOS",
@@ -281,19 +316,6 @@
             "~/projects"
           ],
           "markdownDescription": "Directories scanned for git repositories when `#worktreeManager.scope#` is `searchPaths`. Each entry is scanned one level deep, so `~/projects` picks up `~/projects/my-repo`. `~` is expanded."
-        },
-        "worktreeManager.openIn": {
-          "type": "string",
-          "enum": [
-            "newWindow",
-            "currentWindow"
-          ],
-          "enumDescriptions": [
-            "Open the worktree in a new VS Code window, leaving this one untouched.",
-            "Replace the folder in the current window."
-          ],
-          "default": "currentWindow",
-          "description": "Where clicking a worktree opens it. Switching in the current window reloads it — VS Code has no other way to point a window at a different folder — and the worktree's terminal is reopened once it comes back."
         },
         "worktreeManager.revealViewOnSwitch": {
           "type": "boolean",

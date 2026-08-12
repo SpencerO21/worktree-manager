@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { createWorktree } from './create';
 import { pruneWorktrees, removeWorktree, Worktree } from './git';
+import { LifecycleManager } from './lifecycle';
 import { TerminalManager } from './terminals';
 import { SessionNode, WorktreeNode, WorktreeTreeProvider } from './tree';
 
@@ -26,10 +27,12 @@ export interface WorktreeManagerApi {
   getWorktrees(): Promise<Worktree[]>;
   refresh(): Promise<void>;
   terminals: TerminalManager;
+  lifecycle: LifecycleManager;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<WorktreeManagerApi> {
   const terminals = new TerminalManager();
+  const lifecycle = new LifecycleManager(context, terminals);
   const provider = new WorktreeTreeProvider();
   const view = vscode.window.createTreeView('worktreeManager.tree', {
     treeDataProvider: provider,
@@ -80,10 +83,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
     // The configuration listener refreshes the tree.
   };
 
-  /** Point this window (or a new one) at a worktree. */
+  /** Open a worktree in its own window unless the caller explicitly opts in to reuse. */
   const switchTo = async (
     worktreePath: string,
-    options: { command?: string } = {},
+    options: { command?: string; reuseWindow?: boolean } = {},
   ): Promise<void> => {
     const { command } = options;
     const target = path.resolve(worktreePath);
@@ -95,7 +98,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
       return;
     }
 
-    const newWindow = config().get<string>('openIn', 'currentWindow') === 'newWindow';
     await context.globalState.update(PENDING_KEY, {
       path: target,
       command,
@@ -106,7 +108,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
       await vscode.commands.executeCommand(
         'vscode.openFolder',
         vscode.Uri.file(target),
-        newWindow ? { forceNewWindow: true } : { forceReuseWindow: true },
+        options.reuseWindow ? { forceReuseWindow: true } : { forceNewWindow: true },
       );
     } catch (error) {
       await context.globalState.update(PENDING_KEY, undefined);
@@ -149,35 +151,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
 
   register('worktreeManager.openWorktreeCurrentWindow', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
-    if (!worktree) {
-      return;
+    if (worktree) {
+      await switchTo(worktree.path, { reuseWindow: true });
     }
-    if (currentFolder() === path.resolve(worktree.path)) {
-      return;
-    }
-    await context.globalState.update(PENDING_KEY, {
-      path: path.resolve(worktree.path),
-      at: Date.now(),
-    } satisfies PendingSwitch);
-    await vscode.commands.executeCommand(
-      'vscode.openFolder',
-      vscode.Uri.file(worktree.path),
-      { forceReuseWindow: true },
-    );
   });
 
   register('worktreeManager.openWorktreeNewWindow', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
-    if (!worktree) {
-      return;
+    if (worktree) {
+      await switchTo(worktree.path);
     }
-    await context.globalState.update(PENDING_KEY, {
-      path: path.resolve(worktree.path),
-      at: Date.now(),
-    } satisfies PendingSwitch);
-    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(worktree.path), {
-      forceNewWindow: true,
-    });
   });
 
   register('worktreeManager.openTerminal', async (node?: WorktreeNode) => {
@@ -187,12 +170,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
     }
   });
 
+  register('worktreeManager.setupWorktree', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (!worktree) {
+      return;
+    }
+    const result = await lifecycle.setup(worktree.path, { force: true });
+    if (result.ok) {
+      void vscode.window.showInformationMessage(
+        result.ran
+          ? `Setup completed for ${path.basename(worktree.path)}.`
+          : `No setup commands are configured for ${path.basename(worktree.path)}.`,
+      );
+    } else {
+      void vscode.window.showErrorMessage(
+        `Setup failed for ${path.basename(worktree.path)}. Review the setup terminal for details.`,
+      );
+    }
+  });
+
+  register('worktreeManager.runWorktree', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (worktree) {
+      await lifecycle.runApp(worktree.path);
+    }
+  });
+
   register('worktreeManager.createWorktree', async () => {
     const created = await createWorktree(await provider.getWorktrees());
     if (!created) {
       return;
     }
     await refresh();
+    const setup = await lifecycle.setup(created);
+    if (!setup.ok) {
+      const choice = await vscode.window.showErrorMessage(
+        `Setup failed for ${path.basename(created)}. The worktree was kept so you can inspect and retry it.`,
+        'Open Anyway',
+      );
+      if (choice !== 'Open Anyway') {
+        return;
+      }
+    }
     await switchTo(created);
   });
 
@@ -228,6 +247,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
     if (!choice) {
       return;
     }
+    if (!worktree.prunable) {
+      const teardown = await lifecycle.teardown(worktree.path);
+      if (!teardown.ok) {
+        const removeAnyway = await vscode.window.showWarningMessage(
+          `Teardown failed for ${path.basename(worktree.path)}. Remove the worktree anyway?`,
+          { modal: true },
+          'Remove Anyway',
+        );
+        if (removeAnyway !== 'Remove Anyway') {
+          return;
+        }
+      }
+    }
     try {
       await removeWorktree(worktree.repoRoot, worktree.path, choice === 'Force Remove');
     } catch (error) {
@@ -237,6 +269,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
       return;
     }
     terminals.close(worktree.path);
+    await lifecycle.forget(worktree.path);
     await refresh();
   });
 
@@ -270,6 +303,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
     }
     for (const worktree of missing) {
       terminals.close(worktree.path);
+      await lifecycle.forget(worktree.path);
     }
     await refresh();
 
@@ -349,7 +383,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
   await resumePendingSwitch(context, terminals);
   await updateStatus(status, provider);
 
-  return { getWorktrees: () => provider.getWorktrees(), refresh, terminals };
+  return { getWorktrees: () => provider.getWorktrees(), refresh, terminals, lifecycle };
 }
 
 /**

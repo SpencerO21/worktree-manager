@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { WorktreeManagerApi } from '../../extension';
@@ -45,6 +46,8 @@ describe('Worktree Manager', () => {
       'worktreeManager.switchWorktree',
       'worktreeManager.openWorktree',
       'worktreeManager.openTerminal',
+      'worktreeManager.runWorktree',
+      'worktreeManager.setupWorktree',
       'worktreeManager.removeWorktree',
       'worktreeManager.refresh',
     ]) {
@@ -52,23 +55,26 @@ describe('Worktree Manager', () => {
     }
   });
 
-  it('offers "Open in New Window" on a worktree row', async () => {
+  it('offers the current-window override only in a worktree right-click menu', async () => {
     const { contributes } = extension().packageJSON;
-    const items = contributes.menus['view/item/context'].filter(
-      (item: { command: string }) => item.command === 'worktreeManager.openWorktreeNewWindow',
+    const contextItems = contributes.menus['view/item/context'].filter(
+      (item: { command: string }) => item.command === 'worktreeManager.openWorktreeCurrentWindow',
+    );
+    const paletteItems = contributes.menus.commandPalette.filter(
+      (item: { command: string }) => item.command === 'worktreeManager.openWorktreeCurrentWindow',
     );
 
-    assert.ok(
-      items.some((item: { group: string }) => item.group.startsWith('inline')),
-      'no inline button',
-    );
-    assert.ok(
-      items.some((item: { group: string }) => !item.group.startsWith('inline')),
-      'not in the right-click menu',
-    );
-    for (const item of items) {
-      assert.match(item.when, /viewItem =~ \/\^worktree\//);
-    }
+    assert.strictEqual(contextItems.length, 1);
+    assert.ok(!contextItems[0].group.startsWith('inline'), 'current-window action is inline');
+    assert.match(contextItems[0].when, /viewItem =~ \/\^worktree\//);
+    assert.deepStrictEqual(paletteItems, [
+      { command: 'worktreeManager.openWorktreeCurrentWindow', when: 'false' },
+    ]);
+  });
+
+  it('does not expose a setting that can make ordinary clicks reuse the window', async () => {
+    const { contributes } = extension().packageJSON;
+    assert.strictEqual(contributes.configuration.properties['worktreeManager.openIn'], undefined);
   });
 
   // A menu entry pointing at a command that was never registered silently
@@ -134,5 +140,20 @@ describe('Worktree Manager', () => {
     );
 
     terminals.close(feature);
+  });
+
+  it('runs configured setup in a real linked worktree with compatibility environment', async () => {
+    const manager = await api();
+    const feature = (await manager.getWorktrees()).find(
+      (worktree) => path.basename(worktree.path) === 'demo-feature-x',
+    );
+    assert.ok(feature, 'feature worktree was not discovered');
+
+    const setup = await manager.lifecycle.setup(feature.path, { force: true });
+
+    const marker = path.join(feature.path, '.setup-ran');
+    assert.deepStrictEqual(setup, { ok: true, ran: true });
+    assert.strictEqual(await fs.readFile(marker, 'utf8'), await fs.realpath(path.join(projects, 'demo')));
+    await fs.unlink(marker);
   });
 });
