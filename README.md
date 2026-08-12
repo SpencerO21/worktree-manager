@@ -147,7 +147,7 @@ Grab the `.vsix` from the [latest release](https://github.com/SpencerO21/worktre
 and install it — it is self-contained, so there is nothing to build:
 
 ```sh
-code --install-extension spencers-worktree-manager-0.0.7.vsix
+code --install-extension spencers-worktree-manager-0.0.8.vsix
 ```
 
 Reload the window afterwards.

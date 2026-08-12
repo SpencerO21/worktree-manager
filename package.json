@@ -2,7 +2,7 @@
   "name": "spencers-worktree-manager",
   "displayName": "Spencer's Worktree Manager",
   "description": "List the worktrees of the repository you are in and open them in dedicated windows.",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "publisher": "spencer021",
   "private": true,
   "license": "MIT",
