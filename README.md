@@ -125,10 +125,10 @@ Repositories already using Superset do not need a second configuration. When
 `.superset/setup.sh`, `teardown.sh`, and `run.sh` fallbacks. It also provides the compatible
 `SUPERSET_ROOT_PATH`, `SUPERSET_WORKSPACE_PATH`, and `SUPERSET_WORKSPACE_NAME` variables.
 
-For example, Bonaparte's existing configuration already installs dependencies, copies untracked
-environment files from `SUPERSET_ROOT_PATH`, and runs its per-worktree port allocator. **New
-Worktree** followed by **Run App** uses that setup unchanged. If its config continues to omit
-`run`, Spencer's Worktree Manager detects the root `pnpm dev` script automatically.
+For example, an existing Superset configuration can install dependencies, copy untracked
+environment files from `SUPERSET_ROOT_PATH`, and run a per-worktree port allocator. **New
+Worktree** followed by **Run App** uses that setup unchanged. If the config omits `run`, Spencer's
+Worktree Manager detects a conventional root `dev` or `start` script automatically.
 
 ## Development
 

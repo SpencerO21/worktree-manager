@@ -199,8 +199,8 @@ export function workspaceEnvironment(
     WORKTREE_ROOT_PATH: root,
     WORKTREE_WORKSPACE_NAME: name,
     WORKTREE_WORKSPACE_PATH: workspacePath,
-    // Compatibility aliases let projects already configured for Superset, such
-    // as Bonaparte, use Worktree Manager without duplicate setup files.
+    // Compatibility aliases let projects already configured for Superset use
+    // this extension without duplicate setup files.
     SUPERSET_ROOT_PATH: root,
     SUPERSET_WORKSPACE_NAME: name,
     SUPERSET_WORKSPACE_PATH: workspacePath,
