@@ -1,6 +1,6 @@
 {
-  "name": "worktree-manager",
-  "displayName": "Worktree Manager",
+  "name": "spencers-worktree-manager",
+  "displayName": "Spencer's Worktree Manager",
   "description": "List the worktrees of the repository you are in and open them in dedicated windows.",
   "version": "0.0.7",
   "publisher": "spencer021",
@@ -49,7 +49,7 @@
       {
         "view": "worktreeManager.tree",
         "when": "worktreeManager.allRepositories",
-        "contents": "No git worktrees found.\n\nWorktree Manager is looking in your open folders and in the paths listed under the `worktreeManager.searchPaths` setting.\n\n[New Worktree](command:worktreeManager.createWorktree)\n[Open Settings](command:worktreeManager.openSettings)\n[Refresh](command:worktreeManager.refresh)"
+        "contents": "No git worktrees found.\n\nSpencer's Worktree Manager is looking in your open folders and in the paths listed under the `worktreeManager.searchPaths` setting.\n\n[New Worktree](command:worktreeManager.createWorktree)\n[Open Settings](command:worktreeManager.openSettings)\n[Refresh](command:worktreeManager.refresh)"
       }
     ],
     "commands": [
@@ -161,7 +161,7 @@
       },
       {
         "command": "worktreeManager.openSettings",
-        "title": "Open Worktree Manager Settings",
+        "title": "Open Spencer's Worktree Manager Settings",
         "category": "Worktrees"
       }
     ],
@@ -292,7 +292,7 @@
       ]
     },
     "configuration": {
-      "title": "Worktree Manager",
+      "title": "Spencer's Worktree Manager",
       "properties": {
         "worktreeManager.scope": {
           "type": "string",

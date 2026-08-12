@@ -7,7 +7,7 @@ import type { WorktreeManagerApi } from '../../extension';
 const projects = path.join(process.env.WT_FIXTURE_ROOT ?? '', 'projects');
 
 function extension(): vscode.Extension<WorktreeManagerApi> {
-  const found = vscode.extensions.getExtension<WorktreeManagerApi>('spencer.worktree-manager');
+  const found = vscode.extensions.getExtension<WorktreeManagerApi>('spencer021.spencers-worktree-manager');
   assert.ok(found, 'extension not found');
   return found;
 }
@@ -31,7 +31,7 @@ async function worktreeNames(): Promise<string[]> {
   return worktrees.map((worktree) => path.basename(worktree.path)).sort();
 }
 
-describe('Worktree Manager', () => {
+describe("Spencer's Worktree Manager", () => {
   // The default search path is the real ~/projects, which would make discovery
   // depend on whatever the developer happens to have checked out.
   beforeEach(async () => {

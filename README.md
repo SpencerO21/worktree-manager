@@ -1,4 +1,4 @@
-# Worktree Manager
+# Spencer's Worktree Manager
 
 A VS Code extension that lists the git worktrees of the repository you are working in and
 opens each one in its own window with a click.
@@ -61,7 +61,7 @@ A status bar entry shows the current worktree and opens the switcher.
 
 ## Automatic worktree setup and local apps
 
-Commit `.worktrees/config.json` to tell Worktree Manager how to prepare, run, and clean up every
+Commit `.worktrees/config.json` to tell Spencer's Worktree Manager how to prepare, run, and clean up every
 worktree:
 
 ```json
@@ -85,10 +85,10 @@ worktree:
   run again.
 - Each `run` command starts in its own dedicated app terminal. Clicking **Run App** again reveals
   the existing app instead of starting another copy.
-- `teardown` commands run before a worktree is removed. If teardown fails, Worktree Manager keeps
+- `teardown` commands run before a worktree is removed. If teardown fails, Spencer's Worktree Manager keeps
   the worktree unless you explicitly choose **Remove Anyway**.
 - `cwd` optionally runs every command below a subdirectory, such as `"cwd": "apps/web"`.
-- An explicit empty array disables that lifecycle action. If `run` is omitted, Worktree Manager
+- An explicit empty array disables that lifecycle action. If `run` is omitted, Spencer's Worktree Manager
   looks for `.worktrees/run.sh`, then falls back to a `dev` or `start` package script and detects
   npm, pnpm, Yarn, or Bun from the lockfile.
 - Instead of arrays, a repository can provide `.worktrees/setup.sh`, `teardown.sh`, or `run.sh` as
@@ -105,7 +105,7 @@ Every lifecycle command and app terminal receives:
 
 ### Avoiding local port conflicts
 
-Frameworks disagree about how ports are configured, so Worktree Manager leaves the allocation
+Frameworks disagree about how ports are configured, so Spencer's Worktree Manager leaves the allocation
 policy with the repository. Put that policy in an idempotent setup script and write the selected
 ports into worktree-local `.env` files. A typical script keeps a small registry outside the
 repository, assigns each worktree an index, derives service ports from base ports plus that index,
@@ -121,14 +121,14 @@ port changes so one worktree cannot change another's environment.
 ### Superset compatibility
 
 Repositories already using Superset do not need a second configuration. When
-`.worktrees/config.json` is absent, Worktree Manager reads `.superset/config.json` and the
+`.worktrees/config.json` is absent, Spencer's Worktree Manager reads `.superset/config.json` and the
 `.superset/setup.sh`, `teardown.sh`, and `run.sh` fallbacks. It also provides the compatible
 `SUPERSET_ROOT_PATH`, `SUPERSET_WORKSPACE_PATH`, and `SUPERSET_WORKSPACE_NAME` variables.
 
 For example, Bonaparte's existing configuration already installs dependencies, copies untracked
 environment files from `SUPERSET_ROOT_PATH`, and runs its per-worktree port allocator. **New
 Worktree** followed by **Run App** uses that setup unchanged. If its config continues to omit
-`run`, Worktree Manager detects the root `pnpm dev` script automatically.
+`run`, Spencer's Worktree Manager detects the root `pnpm dev` script automatically.
 
 ## Development
 
@@ -147,7 +147,7 @@ Grab the `.vsix` from the [latest release](https://github.com/SpencerO21/worktre
 and install it — it is self-contained, so there is nothing to build:
 
 ```sh
-code --install-extension worktree-manager-0.0.7.vsix
+code --install-extension spencers-worktree-manager-0.0.7.vsix
 ```
 
 Reload the window afterwards.

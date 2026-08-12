@@ -17,7 +17,7 @@ function git(args: string[]): string {
 }
 
 async function api(): Promise<WorktreeManagerApi> {
-  const found = vscode.extensions.getExtension<WorktreeManagerApi>('spencer.worktree-manager');
+  const found = vscode.extensions.getExtension<WorktreeManagerApi>('spencer021.spencers-worktree-manager');
   assert.ok(found, 'extension not found');
   return found.isActive ? found.exports : await found.activate();
 }
