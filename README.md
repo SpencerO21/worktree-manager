@@ -12,6 +12,8 @@ opens each one in its own window with a click.
 - **Click to open.** Clicking a worktree opens it in a new window, leaving your current editors,
   terminals, and agents untouched. To replace the folder in the current window instead,
   right-click the worktree and specifically choose **Open in This Window**.
+- **See which windows are open.** A worktree that is open in any VS Code window gets a green
+  open-folder icon and an `open` label; the worktree in the active window is labeled `current`.
 - **New worktree in a few keystrokes.** The `+` button asks for a branch (existing branches are
   checked out, new ones are created off a base you pick), proposes a directory from
   `worktreeManager.newWorktreePath`, runs `git worktree add`, then opens it in a new window so
@@ -147,7 +149,7 @@ Grab the `.vsix` from the [latest release](https://github.com/SpencerO21/worktre
 and install it — it is self-contained, so there is nothing to build:
 
 ```sh
-code --install-extension spencers-worktree-manager-0.0.8.vsix
+code --install-extension spencers-worktree-manager-0.0.9.vsix
 ```
 
 Reload the window afterwards.

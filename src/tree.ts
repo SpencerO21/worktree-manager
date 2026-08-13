@@ -2,11 +2,13 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { findRepositories, listWorktrees, repoRootFor, Worktree } from './git';
 import { AgentSession, CodexIndex, sessionsForWorktree } from './sessions';
+import { OpenWindowRegistry } from './windows';
 
 export class WorktreeNode extends vscode.TreeItem {
   constructor(
     readonly worktree: Worktree,
     readonly isCurrent: boolean,
+    readonly isOpen: boolean = isCurrent,
   ) {
     // A worktree git has flagged as prunable has nothing left to open, so it is
     // listed only so it can be cleared — flat, and clicking it offers removal.
@@ -26,12 +28,14 @@ export class WorktreeNode extends vscode.TreeItem {
       ? `${branch} • missing`
       : isCurrent
         ? `${branch} • current`
-        : branch;
+        : isOpen
+          ? `${branch} • open`
+          : branch;
     this.iconPath = missing
       ? new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'))
       : new vscode.ThemeIcon(
-          worktree.isMain ? 'repo' : 'git-branch',
-          isCurrent ? new vscode.ThemeColor('charts.green') : undefined,
+          isOpen ? 'folder-opened' : worktree.isMain ? 'repo' : 'git-branch',
+          isOpen ? new vscode.ThemeColor('charts.green') : undefined,
         );
     if (!missing) {
       // Pointing at a directory that is gone leaves the row to file decorations
@@ -50,6 +54,11 @@ export class WorktreeNode extends vscode.TreeItem {
         `- Branch: \`${branch}\``,
         `- Path: \`${worktree.path}\``,
         `- Repository: \`${worktree.repoRoot}\``,
+        isCurrent
+          ? '- Open in this VS Code window'
+          : isOpen
+            ? '- Open in another VS Code window'
+            : '',
         worktree.isMain ? '- Primary working tree' : '',
         worktree.locked ? '- 🔒 Locked' : '',
         missing
@@ -121,9 +130,16 @@ export class WorktreeTreeProvider implements vscode.TreeDataProvider<Node>, vsco
   private readonly codex = new CodexIndex();
   private worktrees?: Promise<Worktree[]>;
 
+  constructor(private readonly openWindows: OpenWindowRegistry) {}
+
   refresh(): void {
     this.worktrees = undefined;
     this.codex.invalidate();
+    this.emitter.fire(undefined);
+  }
+
+  /** Repaint presence without doing another git and agent-session scan. */
+  refreshOpenWindows(): void {
     this.emitter.fire(undefined);
   }
 
@@ -183,8 +199,12 @@ export class WorktreeTreeProvider implements vscode.TreeDataProvider<Node>, vsco
     }
 
     const current = currentWorkspacePaths();
+    const open = await this.openWindows.getOpenPaths();
     return worktrees.map(
-      (worktree) => new WorktreeNode(worktree, current.has(path.resolve(worktree.path))),
+      (worktree) => {
+        const resolved = path.resolve(worktree.path);
+        return new WorktreeNode(worktree, current.has(resolved), open.has(resolved));
+      },
     );
   }
 

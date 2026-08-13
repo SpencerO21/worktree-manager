@@ -5,6 +5,7 @@ import { pruneWorktrees, removeWorktree, Worktree } from './git';
 import { LifecycleManager } from './lifecycle';
 import { TerminalManager } from './terminals';
 import { SessionNode, WorktreeNode, WorktreeTreeProvider } from './tree';
+import { OpenWindowRegistry } from './windows';
 
 /**
  * VS Code can only point a window at another folder by reloading it, which tears
@@ -14,6 +15,7 @@ import { SessionNode, WorktreeNode, WorktreeTreeProvider } from './tree';
  */
 const PENDING_KEY = 'worktreeManager.pendingSwitch';
 const PENDING_TTL_MS = 5 * 60 * 1000;
+let activeOpenWindows: OpenWindowRegistry | undefined;
 
 interface PendingSwitch {
   path: string;
@@ -33,14 +35,33 @@ export interface WorktreeManagerApi {
 export async function activate(context: vscode.ExtensionContext): Promise<WorktreeManagerApi> {
   const terminals = new TerminalManager();
   const lifecycle = new LifecycleManager(context, terminals);
-  const provider = new WorktreeTreeProvider();
+  const openWindows = new OpenWindowRegistry(context.globalStorageUri);
+  activeOpenWindows = openWindows;
+  await openWindows.start(currentWorkspacePaths());
+  const provider = new WorktreeTreeProvider(openWindows);
   const view = vscode.window.createTreeView('worktreeManager.tree', {
     treeDataProvider: provider,
   });
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   status.command = 'worktreeManager.switchWorktree';
-  context.subscriptions.push(terminals, view, status, provider);
+  context.subscriptions.push(terminals, view, status, provider, openWindows);
+
+  // Each marker update comes from one extension host. Watching the shared folder
+  // lets every visible tree repaint as windows open and close, without re-running
+  // git discovery on every heartbeat.
+  const windowMarkerWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(
+      vscode.Uri.joinPath(context.globalStorageUri, 'open-windows'),
+      '*.json',
+    ),
+  );
+  context.subscriptions.push(
+    windowMarkerWatcher,
+    windowMarkerWatcher.onDidCreate(() => provider.refreshOpenWindows()),
+    windowMarkerWatcher.onDidChange(() => provider.refreshOpenWindows()),
+    windowMarkerWatcher.onDidDelete(() => provider.refreshOpenWindows()),
+  );
 
   const config = () => vscode.workspace.getConfiguration('worktreeManager');
 
@@ -358,7 +379,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
   );
 
   context.subscriptions.push(
-    vscode.workspace.onDidChangeWorkspaceFolders(() => void refresh()),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      void openWindows.setWorkspacePaths(currentWorkspacePaths()).then(refresh);
+    }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('worktreeManager')) {
         void refresh();
@@ -432,6 +455,12 @@ function currentFolder(): string | undefined {
   return first ? path.resolve(first.uri.fsPath) : undefined;
 }
 
+function currentWorkspacePaths(): string[] {
+  return (vscode.workspace.workspaceFolders ?? [])
+    .filter((folder) => folder.uri.scheme === 'file')
+    .map((folder) => path.resolve(folder.uri.fsPath));
+}
+
 async function pickWorktree(
   worktrees: Worktree[],
   placeHolder: string,
@@ -482,6 +511,9 @@ async function updateStatus(
   status.show();
 }
 
-export function deactivate(): void {
-  // Terminals and views are disposed through context.subscriptions.
+export async function deactivate(): Promise<void> {
+  // Awaiting marker removal prevents a normally closed window from looking open
+  // until its heartbeat expires in the other extension hosts.
+  await activeOpenWindows?.close();
+  activeOpenWindows = undefined;
 }
