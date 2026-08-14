@@ -31,7 +31,7 @@ async function worktreeNames(): Promise<string[]> {
   return worktrees.map((worktree) => path.basename(worktree.path)).sort();
 }
 
-describe("Spencer's Worktree Manager", () => {
+describe('TreeHugger - Worktree Manager', () => {
   // The default search path is the real ~/projects, which would make discovery
   // depend on whatever the developer happens to have checked out.
   beforeEach(async () => {

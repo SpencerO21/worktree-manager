@@ -1,9 +1,10 @@
 {
   "name": "spencers-worktree-manager",
-  "displayName": "Spencer's Worktree Manager",
-  "description": "List the worktrees of the repository you are in and open them in dedicated windows.",
-  "version": "0.0.9",
+  "displayName": "TreeHugger - Worktree Manager",
+  "description": "See, create, and open Git worktrees in dedicated VS Code windows.",
+  "version": "1.0.0",
   "publisher": "spencer021",
+  "icon": "media/treehugger.png",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -26,7 +27,7 @@
       "activitybar": [
         {
           "id": "worktreeManager",
-          "title": "Worktrees",
+          "title": "TreeHugger",
           "icon": "media/worktree.svg"
         }
       ]
@@ -49,7 +50,7 @@
       {
         "view": "worktreeManager.tree",
         "when": "worktreeManager.allRepositories",
-        "contents": "No git worktrees found.\n\nSpencer's Worktree Manager is looking in your open folders and in the paths listed under the `worktreeManager.searchPaths` setting.\n\n[New Worktree](command:worktreeManager.createWorktree)\n[Open Settings](command:worktreeManager.openSettings)\n[Refresh](command:worktreeManager.refresh)"
+        "contents": "No git worktrees found.\n\nTreeHugger is looking in your open folders and in the paths listed under the `worktreeManager.searchPaths` setting.\n\n[New Worktree](command:worktreeManager.createWorktree)\n[Open Settings](command:worktreeManager.openSettings)\n[Refresh](command:worktreeManager.refresh)"
       }
     ],
     "commands": [
@@ -161,7 +162,7 @@
       },
       {
         "command": "worktreeManager.openSettings",
-        "title": "Open Spencer's Worktree Manager Settings",
+        "title": "Open TreeHugger Settings",
         "category": "Worktrees"
       }
     ],
@@ -292,7 +293,7 @@
       ]
     },
     "configuration": {
-      "title": "Spencer's Worktree Manager",
+      "title": "TreeHugger - Worktree Manager",
       "properties": {
         "worktreeManager.scope": {
           "type": "string",

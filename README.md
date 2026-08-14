@@ -1,4 +1,4 @@
-# Spencer's Worktree Manager
+# TreeHugger - Worktree Manager
 
 A VS Code extension that lists the git worktrees of the repository you are working in and
 opens each one in its own window with a click.
@@ -63,7 +63,7 @@ A status bar entry shows the current worktree and opens the switcher.
 
 ## Automatic worktree setup and local apps
 
-Commit `.worktrees/config.json` to tell Spencer's Worktree Manager how to prepare, run, and clean up every
+Commit `.worktrees/config.json` to tell TreeHugger how to prepare, run, and clean up every
 worktree:
 
 ```json
@@ -87,10 +87,10 @@ worktree:
   run again.
 - Each `run` command starts in its own dedicated app terminal. Clicking **Run App** again reveals
   the existing app instead of starting another copy.
-- `teardown` commands run before a worktree is removed. If teardown fails, Spencer's Worktree Manager keeps
+- `teardown` commands run before a worktree is removed. If teardown fails, TreeHugger keeps
   the worktree unless you explicitly choose **Remove Anyway**.
 - `cwd` optionally runs every command below a subdirectory, such as `"cwd": "apps/web"`.
-- An explicit empty array disables that lifecycle action. If `run` is omitted, Spencer's Worktree Manager
+- An explicit empty array disables that lifecycle action. If `run` is omitted, TreeHugger
   looks for `.worktrees/run.sh`, then falls back to a `dev` or `start` package script and detects
   npm, pnpm, Yarn, or Bun from the lockfile.
 - Instead of arrays, a repository can provide `.worktrees/setup.sh`, `teardown.sh`, or `run.sh` as
@@ -107,7 +107,7 @@ Every lifecycle command and app terminal receives:
 
 ### Avoiding local port conflicts
 
-Frameworks disagree about how ports are configured, so Spencer's Worktree Manager leaves the allocation
+Frameworks disagree about how ports are configured, so TreeHugger leaves the allocation
 policy with the repository. Put that policy in an idempotent setup script and write the selected
 ports into worktree-local `.env` files. A typical script keeps a small registry outside the
 repository, assigns each worktree an index, derives service ports from base ports plus that index,
@@ -123,7 +123,7 @@ port changes so one worktree cannot change another's environment.
 ### Superset compatibility
 
 Repositories already using Superset do not need a second configuration. When
-`.worktrees/config.json` is absent, Spencer's Worktree Manager reads `.superset/config.json` and the
+`.worktrees/config.json` is absent, TreeHugger reads `.superset/config.json` and the
 `.superset/setup.sh`, `teardown.sh`, and `run.sh` fallbacks. It also provides the compatible
 `SUPERSET_ROOT_PATH`, `SUPERSET_WORKSPACE_PATH`, and `SUPERSET_WORKSPACE_NAME` variables.
 

@@ -107,7 +107,7 @@ export async function createWorktree(worktrees: Worktree[]): Promise<string | un
   const repos = reposFromWorktrees(worktrees);
   if (repos.length === 0) {
     void vscode.window.showErrorMessage(
-      "Spencer's Worktree Manager found no git repositories. Add one to this window or to the worktreeManager.searchPaths setting.",
+      'TreeHugger found no git repositories. Add one to this window or to the worktreeManager.searchPaths setting.',
     );
     return undefined;
   }
