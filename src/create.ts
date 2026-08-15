@@ -6,6 +6,7 @@ import {
   branchExists,
   currentBranch,
   expandHome,
+  git,
   listBranches,
   Worktree,
 } from './git';
@@ -32,6 +33,30 @@ export function reposFromWorktrees(worktrees: Worktree[]): RepoChoice[] {
 /** Branch names become directory names, so `feature/x` has to flatten to `feature-x`. */
 function slugify(branch: string): string {
   return branch.replace(/[\\/\s]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+/** Turn task text or an issue/PR URL into a conservative, editable branch proposal. */
+export function branchFromTask(task: string): string {
+  const trimmed = task.trim();
+  const issue = /\/issues\/(\d+)(?:[/?#]|$)/i.exec(trimmed);
+  if (issue) {
+    return `task/issue-${issue[1]}`;
+  }
+  const pull = /\/pull\/(\d+)(?:[/?#]|$)/i.exec(trimmed);
+  if (pull) {
+    return `task/pr-${pull[1]}`;
+  }
+  const reference = /(?:^|\s)#(\d+)(?:\s|$)/.exec(trimmed);
+  if (reference) {
+    return `task/issue-${reference[1]}`;
+  }
+  const slug = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
+    .replace(/-+$/g, '');
+  return `task/${slug || 'new-work'}`;
 }
 
 export function resolveWorktreePath(template: string, repo: RepoChoice, branch: string): string {
@@ -103,7 +128,10 @@ async function pickBase(repo: RepoChoice, branch: string): Promise<string | unde
  * Prompt for a branch, a starting point and a location, then `git worktree add`.
  * Returns the new worktree's path, or undefined if the user backed out.
  */
-export async function createWorktree(worktrees: Worktree[]): Promise<string | undefined> {
+export async function createWorktree(
+  worktrees: Worktree[],
+  options: { initialBranch?: string } = {},
+): Promise<string | undefined> {
   const repos = reposFromWorktrees(worktrees);
   if (repos.length === 0) {
     void vscode.window.showErrorMessage(
@@ -122,6 +150,7 @@ export async function createWorktree(worktrees: Worktree[]): Promise<string | un
       title: `New Worktree in ${repo.name}`,
       prompt: 'Branch name — an existing branch is checked out, a new one is created',
       placeHolder: 'feature/my-change',
+      value: options.initialBranch,
       validateInput: (value) => {
         const trimmed = value.trim();
         if (!trimmed) {
@@ -188,5 +217,94 @@ export async function createWorktree(worktrees: Worktree[]): Promise<string | un
     return undefined;
   }
 
+  const includePatterns = vscode.workspace
+    .getConfiguration('git', vscode.Uri.file(repo.root))
+    .get<string[]>('worktreeIncludeFiles', []);
+  if (includePatterns.length > 0) {
+    try {
+      const copied = await copyIncludedFiles(repo.root, worktreePath, includePatterns);
+      if (copied > 0) {
+        void vscode.window.showInformationMessage(
+          `Copied ${copied} ignored file${copied === 1 ? '' : 's'} into the new worktree.`,
+        );
+      }
+    } catch (error) {
+      void vscode.window.showWarningMessage(
+        `The worktree was created, but ignored files could not be copied: ${(error as Error).message}`,
+      );
+    }
+  }
+
   return worktreePath;
+}
+
+/** Apply VS Code's `git.worktreeIncludeFiles` semantics to a TreeHugger worktree. */
+export async function copyIncludedFiles(
+  sourceRoot: string,
+  targetRoot: string,
+  patterns: string[],
+): Promise<number> {
+  if (patterns.length === 0) {
+    return 0;
+  }
+  const ignored = (await git(sourceRoot, [
+    'ls-files',
+    '--others',
+    '--ignored',
+    '--exclude-standard',
+    '-z',
+  ])).split('\0').filter(Boolean);
+  const matchers = patterns.map(globMatcher);
+  let copied = 0;
+
+  for (const file of ignored) {
+    const relative = file.replace(/\\/g, '/');
+    if (!matchers.some((matches) => matches(relative))) {
+      continue;
+    }
+    const source = path.resolve(sourceRoot, file);
+    const target = path.resolve(targetRoot, file);
+    if (!isInside(sourceRoot, source) || !isInside(targetRoot, target)) {
+      continue;
+    }
+    const stat = await fsp.lstat(source);
+    if (!stat.isFile()) {
+      continue;
+    }
+    await fsp.mkdir(path.dirname(target), { recursive: true });
+    await fsp.copyFile(source, target);
+    await fsp.chmod(target, stat.mode);
+    copied++;
+  }
+  return copied;
+}
+
+function isInside(root: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(root), candidate);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function globMatcher(pattern: string): (value: string) => boolean {
+  const normalized = pattern.replace(/\\/g, '/').replace(/^\.\//, '');
+  let expression = '^';
+  for (let index = 0; index < normalized.length; index++) {
+    const character = normalized[index];
+    if (character === '*' && normalized[index + 1] === '*') {
+      index++;
+      if (normalized[index + 1] === '/') {
+        index++;
+        expression += '(?:.*/)?';
+      } else {
+        expression += '.*';
+      }
+    } else if (character === '*') {
+      expression += '[^/]*';
+    } else if (character === '?') {
+      expression += '[^/]';
+    } else {
+      expression += character.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
+    }
+  }
+  const matcher = new RegExp(`${expression}$`);
+  return (value) => matcher.test(value);
 }

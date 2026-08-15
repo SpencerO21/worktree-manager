@@ -43,6 +43,7 @@ describe('TreeHugger - Worktree Manager', () => {
     const commands = await vscode.commands.getCommands(true);
     for (const command of [
       'worktreeManager.createWorktree',
+      'worktreeManager.startTask',
       'worktreeManager.switchWorktree',
       'worktreeManager.openWorktree',
       'worktreeManager.openTerminal',
@@ -54,6 +55,8 @@ describe('TreeHugger - Worktree Manager', () => {
       'worktreeManager.filterWorktrees',
       'worktreeManager.clearWorktreeFilter',
       'worktreeManager.togglePinned',
+      'worktreeManager.revealInSourceControl',
+      'worktreeManager.migrateWorktreeChanges',
     ]) {
       assert.ok(commands.includes(command), `${command} is not registered`);
     }
