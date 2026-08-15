@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Worktree } from '../../git';
-import { WorktreeNode } from '../../tree';
+import { CurrentWorktreeDecorationProvider, WorktreeNode } from '../../tree';
 import { OpenWindowRegistry } from '../../windows';
 
 describe('open worktree windows', () => {
@@ -49,6 +49,33 @@ describe('open worktree windows', () => {
     assert.strictEqual((open.iconPath as vscode.ThemeIcon).color?.id, 'charts.green');
     assert.doesNotMatch(String(closed.description), /open/);
     assert.strictEqual((closed.iconPath as vscode.ThemeIcon).id, 'git-branch');
+  });
+
+  it('keeps the current worktree visible when its description is clipped', () => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(folder);
+    const worktree: Worktree = {
+      path: folder.uri.fsPath,
+      repoRoot: folder.uri.fsPath,
+      branch: 'a-very-long-branch-name-that-can-hide-the-description',
+      detached: false,
+      bare: false,
+      locked: false,
+      prunable: false,
+      isMain: true,
+    };
+    const node = new WorktreeNode(worktree, true, true);
+    const decorations = new CurrentWorktreeDecorationProvider();
+    try {
+      const decoration = decorations.provideFileDecoration(folder.uri);
+      assert.strictEqual((node.iconPath as vscode.ThemeIcon).id, 'pass-filled');
+      assert.strictEqual((node.iconPath as vscode.ThemeIcon).color?.id, 'charts.green');
+      assert.strictEqual(decoration?.badge, '✓');
+      assert.strictEqual(decoration?.color?.id, 'gitDecoration.addedResourceForeground');
+      assert.strictEqual(decoration?.tooltip, 'Current worktree');
+    } finally {
+      decorations.dispose();
+    }
   });
 
   it('summarizes actionable health without relying on color', () => {

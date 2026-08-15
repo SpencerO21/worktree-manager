@@ -17,6 +17,32 @@ import { loadWorkspaceConfig } from './workspaceConfig';
 
 const PINNED_KEY = 'worktreeManager.pinned';
 
+/** Color and badge the current worktree's label independently of its clipped description. */
+export class CurrentWorktreeDecorationProvider
+  implements vscode.FileDecorationProvider, vscode.Disposable {
+  private readonly emitter = new vscode.EventEmitter<vscode.Uri[] | undefined>();
+  readonly onDidChangeFileDecorations = this.emitter.event;
+
+  provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+    if (uri.scheme !== 'file' || !currentWorkspacePaths().has(path.resolve(uri.fsPath))) {
+      return undefined;
+    }
+    return {
+      badge: '✓',
+      color: new vscode.ThemeColor('gitDecoration.addedResourceForeground'),
+      tooltip: 'Current worktree',
+    };
+  }
+
+  refresh(): void {
+    this.emitter.fire(undefined);
+  }
+
+  dispose(): void {
+    this.emitter.dispose();
+  }
+}
+
 export class WorktreeNode extends vscode.TreeItem {
   constructor(
     readonly worktree: Worktree,
@@ -74,7 +100,9 @@ export class WorktreeNode extends vscode.TreeItem {
     this.iconPath = missing
       ? new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'))
       : new vscode.ThemeIcon(
-          isOpen
+          isCurrent
+            ? 'pass-filled'
+            : isOpen
             ? 'folder-opened'
             : pinned
               ? 'star-full'
