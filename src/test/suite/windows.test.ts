@@ -50,4 +50,39 @@ describe('open worktree windows', () => {
     assert.doesNotMatch(String(closed.description), /open/);
     assert.strictEqual((closed.iconPath as vscode.ThemeIcon).id, 'git-branch');
   });
+
+  it('summarizes actionable health without relying on color', () => {
+    const worktree: Worktree = {
+      path: '/repo/feature',
+      repoRoot: '/repo/main',
+      branch: 'feature',
+      detached: false,
+      bare: false,
+      locked: false,
+      prunable: false,
+      isMain: false,
+    };
+    const node = new WorktreeNode(worktree, false, false, {
+      changedFiles: 2,
+      stagedFiles: 1,
+      untrackedFiles: 1,
+      upstream: 'origin/feature',
+      ahead: 3,
+      behind: 2,
+      lastCommit: { at: Date.now(), subject: 'Build the feature' },
+      setup: 'stale',
+      appRunning: true,
+      agentKind: 'Codex',
+    });
+
+    assert.match(String(node.description), /3 changes/);
+    assert.match(String(node.description), /↑3/);
+    assert.match(String(node.description), /↓2/);
+    assert.match(String(node.description), /app running/);
+    assert.match(String(node.description), /Codex active/);
+    const tooltip = node.tooltip instanceof vscode.MarkdownString
+      ? node.tooltip.value
+      : String(node.tooltip ?? '');
+    assert.match(tooltip, /2 tracked, 1 untracked, 1 staged/);
+  });
 });

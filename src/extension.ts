@@ -5,7 +5,7 @@ import { WorktreeDiagnostics } from './diagnostics';
 import { gitVersion, pruneWorktrees, removeWorktree, Worktree } from './git';
 import { LifecycleManager } from './lifecycle';
 import { TerminalManager } from './terminals';
-import { SessionNode, WorktreeNode, WorktreeTreeProvider } from './tree';
+import { RepositoryNode, SessionNode, WorktreeNode, WorktreeTreeProvider } from './tree';
 import { OpenWindowRegistry } from './windows';
 import { loadWorkspaceConfig } from './workspaceConfig';
 
@@ -41,14 +41,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
   const openWindows = new OpenWindowRegistry(context.globalStorageUri);
   activeOpenWindows = openWindows;
   await openWindows.start(currentWorkspacePaths());
-  const provider = new WorktreeTreeProvider(openWindows);
+  const provider = new WorktreeTreeProvider(openWindows, lifecycle, terminals, context);
   const view = vscode.window.createTreeView('worktreeManager.tree', {
     treeDataProvider: provider,
   });
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   status.command = 'worktreeManager.switchWorktree';
-  context.subscriptions.push(diagnostics, terminals, view, status, provider, openWindows);
+  context.subscriptions.push(
+    diagnostics,
+    terminals,
+    lifecycle,
+    view,
+    status,
+    provider,
+    openWindows,
+    terminals.onDidChangeState((worktreePath) => provider.refreshRuntime(worktreePath)),
+    lifecycle.onDidChangeState((worktreePath) => provider.refreshRuntime(worktreePath)),
+  );
 
   // Each marker update comes from one extension host. Watching the shared folder
   // lets every visible tree repaint as windows open and close, without re-running
@@ -98,6 +108,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
       'setContext',
       'worktreeManager.allRepositories',
       config().get<string>('scope', 'currentRepository') === 'searchPaths',
+    );
+  };
+
+  const syncFilterContext = async (): Promise<void> => {
+    await vscode.commands.executeCommand(
+      'setContext',
+      'worktreeManager.hasWorktreeFilter',
+      config().get<string>('filter', 'all') !== 'all',
     );
   };
 
@@ -197,6 +215,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
 
   register('worktreeManager.showAllRepositories', () => setScope('searchPaths'));
   register('worktreeManager.showThisRepository', () => setScope('currentRepository'));
+
+  register('worktreeManager.filterWorktrees', async () => {
+    const choices = [
+      { label: 'All worktrees', value: 'all' },
+      { label: 'Open worktrees', value: 'open' },
+      { label: 'Dirty worktrees', value: 'dirty' },
+      { label: 'Running apps or agents', value: 'running' },
+      { label: 'Missing worktrees', value: 'missing' },
+      { label: 'Stale or failed setup', value: 'stale' },
+    ];
+    const picked = await vscode.window.showQuickPick(choices, {
+      title: 'Filter Worktrees',
+      placeHolder: 'Choose which worktrees to show',
+    });
+    if (picked) {
+      await config().update('filter', picked.value, vscode.ConfigurationTarget.Global);
+    }
+  });
+
+  register('worktreeManager.clearWorktreeFilter', () =>
+    config().update('filter', 'all', vscode.ConfigurationTarget.Global),
+  );
+
+  register('worktreeManager.togglePinned', async (node?: RepositoryNode | WorktreeNode) => {
+    if (node instanceof RepositoryNode || node instanceof WorktreeNode) {
+      await provider.togglePinned(node);
+    }
+  });
 
   register('worktreeManager.openWorktree', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
@@ -390,14 +436,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
   register('worktreeManager.newClaudeSession', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (worktree) {
-      terminals.run(worktree.path, config().get<string>('claudeCommand', 'claude'));
+      terminals.runAgent(
+        worktree.path,
+        'Claude Code',
+        config().get<string>('claudeCommand', 'claude'),
+      );
     }
   });
 
   register('worktreeManager.newCodexSession', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (worktree) {
-      terminals.run(worktree.path, config().get<string>('codexCommand', 'codex'));
+      terminals.runAgent(
+        worktree.path,
+        'Codex',
+        config().get<string>('codexCommand', 'codex'),
+      );
     }
   });
 
@@ -426,6 +480,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('worktreeManager')) {
+        void syncFilterContext();
         void refresh();
       }
     }),
@@ -445,6 +500,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
   );
 
   await syncScopeContext();
+  await syncFilterContext();
   await resumePendingSwitch(context, terminals);
   await updateStatus(status, provider);
 

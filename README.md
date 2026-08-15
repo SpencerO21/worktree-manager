@@ -14,6 +14,11 @@ opens each one in its own window with a click.
   right-click the worktree and specifically choose **Open in This Window**.
 - **See which windows are open.** A worktree that is open in any VS Code window gets a green
   open-folder icon and an `open` label; the worktree in the active window is labeled `current`.
+- **See what needs attention.** Rows summarize dirty files, upstream divergence, setup problems,
+  and running apps or agents. Tooltips include staged/untracked counts and the latest commit.
+- **Stay organized at scale.** The all-repositories view groups worktrees by repository. Filter by
+  operational state, sort by name/activity/status, and pin the worktrees or repositories you use
+  most often.
 - **New worktree in a few keystrokes.** The `+` button asks for a branch (existing branches are
   checked out, new ones are created off a base you pick), proposes a directory from
   `worktreeManager.newWorktreePath`, runs `git worktree add`, then opens it in a new window so
@@ -47,6 +52,8 @@ opens each one in its own window with a click.
 | `Worktrees: Remove Missing Worktrees` | Clear git's record of every worktree whose directory is gone |
 | `Worktrees: Start Claude Code Here` / `Start Codex Here` | Launch an agent in the worktree |
 | `Worktrees: Show Diagnostics` | Open a sanitized report of discovery roots, lifecycle config sources, Git commands, failures, and timings |
+| `Worktrees: Filter Worktrees` / `Clear Worktree Filter` | Narrow the tree to open, dirty, running, missing, or stale worktrees |
+| `Worktrees: Toggle Pin` | Keep a worktree or repository above its siblings |
 
 A status bar entry shows the current worktree and opens the switcher.
 
@@ -59,6 +66,8 @@ A status bar entry shows the current worktree and opens the switcher.
 | `worktreeManager.revealViewOnSwitch` | `true` | Reopen the Worktrees view after the window reloads |
 | `worktreeManager.newWorktreePath` | `~/projects/{repoName}-{branch}` | Proposed location for new worktrees |
 | `worktreeManager.pruneMissingWorktrees` | `true` | Prune worktrees whose directory no longer exists instead of listing them |
+| `worktreeManager.filter` | `all` | Show all worktrees or only one operational state |
+| `worktreeManager.sortBy` | `name` | Sort worktrees by name, recent commit activity, or status |
 | `worktreeManager.showSessions` | `true` | List agent chats under each worktree |
 | `worktreeManager.claudeCommand` / `codexCommand` | `claude` / `codex` | Agent launch commands |
 

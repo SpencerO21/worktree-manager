@@ -250,6 +250,97 @@ export interface Branches {
   remote: string[];
 }
 
+export interface LastCommit {
+  at: number;
+  subject: string;
+}
+
+export interface GitWorktreeHealth {
+  changedFiles: number;
+  stagedFiles: number;
+  untrackedFiles: number;
+  upstream?: string;
+  ahead?: number;
+  behind?: number;
+  lastCommit?: LastCommit;
+  error?: string;
+}
+
+/** Fast, machine-readable Git state used by worktree rows and sorting. */
+export async function worktreeGitHealth(worktreePath: string): Promise<GitWorktreeHealth> {
+  const [status, lastCommit] = await Promise.allSettled([
+    git(worktreePath, ['status', '--porcelain=v2', '--branch', '-z']),
+    git(worktreePath, ['log', '-1', '--format=%ct%x00%s']),
+  ]);
+
+  const health = status.status === 'fulfilled'
+    ? parseWorktreeStatus(status.value)
+    : emptyGitHealth(status.reason);
+  if (lastCommit.status === 'fulfilled') {
+    health.lastCommit = parseLastCommit(lastCommit.value);
+  }
+  return health;
+}
+
+export function parseWorktreeStatus(stdout: string): GitWorktreeHealth {
+  const health: GitWorktreeHealth = {
+    changedFiles: 0,
+    stagedFiles: 0,
+    untrackedFiles: 0,
+  };
+
+  for (const field of stdout.split('\0')) {
+    if (field.startsWith('# branch.upstream ')) {
+      health.upstream = field.slice('# branch.upstream '.length);
+      continue;
+    }
+    if (field.startsWith('# branch.ab ')) {
+      const match = /^# branch\.ab \+(\d+) -(\d+)$/.exec(field);
+      if (match) {
+        health.ahead = Number(match[1]);
+        health.behind = Number(match[2]);
+      }
+      continue;
+    }
+    if (field.startsWith('? ')) {
+      health.untrackedFiles++;
+      continue;
+    }
+    if (/^[12u] /.test(field)) {
+      health.changedFiles++;
+      const xy = field.slice(2, 4);
+      if (xy[0] && xy[0] !== '.') {
+        health.stagedFiles++;
+      }
+    }
+  }
+  return health;
+}
+
+function emptyGitHealth(error: unknown): GitWorktreeHealth {
+  return {
+    changedFiles: 0,
+    stagedFiles: 0,
+    untrackedFiles: 0,
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function parseLastCommit(stdout: string): LastCommit | undefined {
+  const separator = stdout.indexOf('\0');
+  if (separator === -1) {
+    return undefined;
+  }
+  const seconds = Number(stdout.slice(0, separator));
+  if (!Number.isFinite(seconds)) {
+    return undefined;
+  }
+  return {
+    at: seconds * 1000,
+    subject: stdout.slice(separator + 1).replace(/[\r\n]+$/, ''),
+  };
+}
+
 export async function listBranches(repo: string): Promise<Branches> {
   const read = async (pattern: string) => {
     try {
@@ -413,6 +504,16 @@ export function parseWorktreePorcelain(stdout: string, repoRoot: string): Worktr
     }
   }
   flush();
+
+  // The first porcelain record is Git's primary worktree (or bare repository).
+  // Use it as the stable family root even when discovery was initiated from a
+  // linked worktree, so grouping and follow-up Git commands share one identity.
+  const primaryPath = worktrees[0]?.path;
+  if (primaryPath) {
+    for (const worktree of worktrees) {
+      worktree.repoRoot = primaryPath;
+    }
+  }
 
   return worktrees;
 }

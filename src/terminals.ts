@@ -23,24 +23,38 @@ function key(worktreePath: string): string {
 export class TerminalManager implements vscode.Disposable {
   private readonly terminals = new Map<string, vscode.Terminal>();
   private readonly appTerminals = new Map<string, vscode.Terminal[]>();
+  private readonly agentTerminals = new Map<string, { terminal: vscode.Terminal; kind: string }>();
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly stateEmitter = new vscode.EventEmitter<string>();
+  readonly onDidChangeState = this.stateEmitter.event;
 
   constructor() {
     this.disposables.push(
       vscode.window.onDidCloseTerminal((closed) => {
+        const changed = new Set<string>();
         for (const [worktreePath, terminal] of this.terminals) {
           if (terminal === closed) {
             this.terminals.delete(worktreePath);
+            changed.add(worktreePath);
           }
         }
         for (const [worktreePath, terminals] of this.appTerminals) {
           const remaining = terminals.filter((terminal) => terminal !== closed);
           if (remaining.length === 0) {
             this.appTerminals.delete(worktreePath);
+            changed.add(worktreePath);
           } else if (remaining.length !== terminals.length) {
             this.appTerminals.set(worktreePath, remaining);
+            changed.add(worktreePath);
           }
         }
+        for (const [worktreePath, agent] of this.agentTerminals) {
+          if (agent.terminal === closed) {
+            this.agentTerminals.delete(worktreePath);
+            changed.add(worktreePath);
+          }
+        }
+        changed.forEach((worktreePath) => this.stateEmitter.fire(worktreePath));
       }),
     );
   }
@@ -78,6 +92,19 @@ export class TerminalManager implements vscode.Disposable {
     return terminal;
   }
 
+  /** Start an agent command and mark its worktree terminal as active. */
+  runAgent(worktreePath: string, kind: string, command: string): vscode.Terminal {
+    const terminal = this.run(worktreePath, command);
+    const resolved = key(worktreePath);
+    this.agentTerminals.set(resolved, { terminal, kind });
+    this.stateEmitter.fire(resolved);
+    return terminal;
+  }
+
+  agentKind(worktreePath: string): string | undefined {
+    return this.agentTerminals.get(key(worktreePath))?.kind;
+  }
+
   /** Reveal an app that is already running for this worktree. */
   showApp(worktreePath: string): boolean {
     const terminals = this.appTerminals.get(key(worktreePath));
@@ -86,6 +113,10 @@ export class TerminalManager implements vscode.Disposable {
     }
     terminals[0].show();
     return true;
+  }
+
+  hasApp(worktreePath: string): boolean {
+    return (this.appTerminals.get(key(worktreePath))?.length ?? 0) > 0;
   }
 
   /** Start each configured app command in its own worktree-scoped terminal. */
@@ -111,25 +142,30 @@ export class TerminalManager implements vscode.Disposable {
       return terminal;
     });
     if (terminals.length > 0) {
-      this.appTerminals.set(key(worktreePath), terminals);
+      const resolved = key(worktreePath);
+      this.appTerminals.set(resolved, terminals);
+      this.stateEmitter.fire(resolved);
       terminals[0].show();
     }
     return terminals;
   }
 
   close(worktreePath: string): void {
-    const terminal = this.get(worktreePath);
+    const resolved = key(worktreePath);
+    const terminal = this.get(resolved);
     if (terminal) {
-      this.terminals.delete(key(worktreePath));
+      this.terminals.delete(resolved);
       terminal.dispose();
     }
-    const apps = this.appTerminals.get(key(worktreePath));
+    this.agentTerminals.delete(resolved);
+    const apps = this.appTerminals.get(resolved);
     if (apps) {
-      this.appTerminals.delete(key(worktreePath));
+      this.appTerminals.delete(resolved);
       for (const app of apps) {
         app.dispose();
       }
     }
+    this.stateEmitter.fire(resolved);
   }
 
   dispose(): void {
@@ -139,5 +175,7 @@ export class TerminalManager implements vscode.Disposable {
     this.disposables.length = 0;
     this.terminals.clear();
     this.appTerminals.clear();
+    this.agentTerminals.clear();
+    this.stateEmitter.dispose();
   }
 }
