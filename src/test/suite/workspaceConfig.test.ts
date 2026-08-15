@@ -107,4 +107,34 @@ describe('worktree lifecycle configuration', () => {
       /`setup`.*\.worktrees\/config\.json.*array of shell commands/,
     );
   });
+
+  it('loads backward-compatible service and environment declarations', async () => {
+    await write(
+      '.worktrees/config.json',
+      JSON.stringify({
+        services: [
+          { name: 'Web', url: 'http://localhost:${PORT}', healthcheck: '/health' },
+          { name: 'API', url: 'http://localhost:${API_PORT}', cwd: 'apps/api' },
+        ],
+        environment: { files: ['.env.ports'], secrets: ['ADMIN_TOKEN'] },
+      }),
+    );
+
+    const config = await loadWorkspaceConfig(worktree, root);
+
+    assert.strictEqual(config.services?.length, 2);
+    assert.deepStrictEqual(config.environment, {
+      files: ['.env.ports'],
+      secrets: ['ADMIN_TOKEN'],
+    });
+  });
+
+  it('reports malformed service declarations with their index', async () => {
+    await write(
+      '.worktrees/config.json',
+      JSON.stringify({ services: [{ name: 'Web', url: 4310 }] }),
+    );
+
+    await assert.rejects(loadWorkspaceConfig(worktree, root), /services\[0\]\.url.*non-empty string/);
+  });
 });

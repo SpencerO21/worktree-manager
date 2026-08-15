@@ -3,11 +3,25 @@ import * as path from 'path';
 
 export type LifecycleKind = 'setup' | 'teardown' | 'run';
 
+export interface WorkspaceService {
+  name: string;
+  url: string;
+  healthcheck?: string;
+  cwd?: string;
+}
+
+export interface WorkspaceEnvironmentConfig {
+  files: string[];
+  secrets: string[];
+}
+
 export interface WorkspaceConfig {
   setup?: string[];
   teardown?: string[];
   run?: string[];
   cwd?: string;
+  services?: WorkspaceService[];
+  environment?: WorkspaceEnvironmentConfig;
   /** The config file that supplied these values, when one exists. */
   source?: string;
 }
@@ -60,6 +74,64 @@ function parseCommands(value: unknown, key: LifecycleKind, source: string): stri
   return value as string[];
 }
 
+function stringArray(value: unknown, key: string, source: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new Error(`\`${key}\` in ${source} must be an array of strings`);
+  }
+  return value as string[];
+}
+
+function parseServices(value: unknown, source: string): WorkspaceService[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`\`services\` in ${source} must be an array`);
+  }
+  return value.map((entry, index) => {
+    const key = `services[${index}]`;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error(`\`${key}\` in ${source} must be an object`);
+    }
+    const service = entry as Record<string, unknown>;
+    if (typeof service.name !== 'string' || !service.name.trim()) {
+      throw new Error(`\`${key}.name\` in ${source} must be a non-empty string`);
+    }
+    if (typeof service.url !== 'string' || !service.url.trim()) {
+      throw new Error(`\`${key}.url\` in ${source} must be a non-empty string`);
+    }
+    for (const field of ['healthcheck', 'cwd'] as const) {
+      if (service[field] !== undefined && typeof service[field] !== 'string') {
+        throw new Error(`\`${key}.${field}\` in ${source} must be a string`);
+      }
+    }
+    return {
+      name: service.name.trim(),
+      url: service.url,
+      healthcheck: service.healthcheck as string | undefined,
+      cwd: service.cwd as string | undefined,
+    };
+  });
+}
+
+function parseEnvironment(value: unknown, source: string): WorkspaceEnvironmentConfig | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`\`environment\` in ${source} must be an object`);
+  }
+  const environment = value as Record<string, unknown>;
+  return {
+    files: environment.files === undefined
+      ? ['.env', '.env.local']
+      : stringArray(environment.files, 'environment.files', source),
+    secrets: environment.secrets === undefined
+      ? []
+      : stringArray(environment.secrets, 'environment.secrets', source),
+  };
+}
+
 /** Load the first project lifecycle config visible to this worktree. */
 export async function loadWorkspaceConfig(
   worktreePath: string,
@@ -90,6 +162,8 @@ export async function loadWorkspaceConfig(
     teardown: parseCommands(raw.teardown, 'teardown', source),
     run: parseCommands(raw.run, 'run', source),
     cwd: raw.cwd as string | undefined,
+    services: parseServices(raw.services, source),
+    environment: parseEnvironment(raw.environment, source),
     source,
   };
 }
