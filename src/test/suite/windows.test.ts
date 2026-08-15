@@ -42,11 +42,17 @@ describe('open worktree windows', () => {
 
     const open = new WorktreeNode(worktree, false, true);
     const closed = new WorktreeNode(worktree, false, false);
+    const current = new WorktreeNode(worktree, true);
 
     assert.match(String(open.description), /open/);
     assert.strictEqual((open.iconPath as vscode.ThemeIcon).id, 'folder-opened');
     assert.strictEqual((open.iconPath as vscode.ThemeIcon).color?.id, 'charts.green');
     assert.doesNotMatch(String(closed.description), /open/);
     assert.strictEqual((closed.iconPath as vscode.ThemeIcon).id, 'git-branch');
+    assert.deepStrictEqual(current.label, {
+      label: 'feature',
+      highlights: [[0, 'feature'.length]],
+    });
+    assert.strictEqual(closed.label, 'feature');
   });
 });
