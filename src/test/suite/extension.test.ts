@@ -63,6 +63,13 @@ describe('TreeHugger - Worktree Manager', () => {
       'worktreeManager.stopApp',
       'worktreeManager.focusAgent',
       'worktreeManager.stopAgent',
+      'worktreeManager.lockWorktree',
+      'worktreeManager.unlockWorktree',
+      'worktreeManager.moveWorktree',
+      'worktreeManager.repairWorktrees',
+      'worktreeManager.syncWorktree',
+      'worktreeManager.syncAllWorktrees',
+      'worktreeManager.finishWorktree',
     ]) {
       assert.ok(commands.includes(command), `${command} is not registered`);
     }

@@ -1,8 +1,26 @@
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { branchFromTask, createWorktree } from './create';
 import { WorktreeDiagnostics } from './diagnostics';
-import { gitVersion, pruneWorktrees, removeWorktree, Worktree } from './git';
+import {
+  deleteLocalBranch,
+  fetchRepository,
+  gitVersion,
+  listBranches,
+  lockWorktree,
+  moveWorktree,
+  pruneWorktrees,
+  removeWorktree,
+  repairWorktrees,
+  SyncStrategy,
+  syncDivergence,
+  syncWorktree,
+  unlockWorktree,
+  Worktree,
+  worktreeGitHealth,
+  worktreeHasSubmodules,
+} from './git';
 import { LifecycleManager } from './lifecycle';
 import { TerminalManager } from './terminals';
 import {
@@ -410,6 +428,256 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
     }
   });
 
+  register('worktreeManager.lockWorktree', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (!worktree || worktree.isMain || worktree.prunable) {
+      void vscode.window.showInformationMessage('Only a live linked worktree can be locked.');
+      return;
+    }
+    if (worktree.locked) {
+      void vscode.window.showInformationMessage('That worktree is already locked.');
+      return;
+    }
+    const reason = await vscode.window.showInputBox({
+      title: `Lock ${path.basename(worktree.path)}`,
+      prompt: 'Optional reason (leave empty for no reason)',
+    });
+    if (reason === undefined) {
+      return;
+    }
+    await lockWorktree(worktree.repoRoot, worktree.path, reason);
+    await refresh();
+  });
+
+  register('worktreeManager.unlockWorktree', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (!worktree?.locked) {
+      void vscode.window.showInformationMessage('That worktree is not locked.');
+      return;
+    }
+    await unlockWorktree(worktree.repoRoot, worktree.path);
+    await refresh();
+  });
+
+  register('worktreeManager.moveWorktree', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (!worktree) {
+      return;
+    }
+    if (worktree.isMain || worktree.locked || worktree.prunable) {
+      const state = worktree.isMain ? 'primary' : worktree.locked ? 'locked' : 'missing';
+      void vscode.window.showErrorMessage(`A ${state} worktree cannot be moved.`);
+      return;
+    }
+    if (await worktreeHasSubmodules(worktree.path)) {
+      void vscode.window.showErrorMessage(
+        'Git cannot move a worktree that contains submodules. Move it manually, then use Repair Worktrees.',
+      );
+      return;
+    }
+    const destination = await vscode.window.showInputBox({
+      title: `Move ${path.basename(worktree.path)}`,
+      prompt: 'New absolute directory for this worktree',
+      value: path.join(path.dirname(worktree.path), path.basename(worktree.path)),
+      validateInput: async (value) => {
+        if (!path.isAbsolute(value.trim())) {
+          return 'Enter an absolute path';
+        }
+        return (await pathExists(value.trim())) ? 'That destination already exists' : undefined;
+      },
+    });
+    if (!destination) {
+      return;
+    }
+    await moveWorktree(worktree.repoRoot, worktree.path, path.resolve(destination));
+    terminals.close(worktree.path);
+    await lifecycle.forget(worktree.path);
+    await refresh();
+    void vscode.window.showInformationMessage(`Moved worktree to ${path.resolve(destination)}.`);
+  });
+
+  register('worktreeManager.repairWorktrees', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (!worktree) {
+      return;
+    }
+    const selected = await vscode.window.showOpenDialog({
+      title: 'Select moved worktree directories to repair',
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: true,
+      defaultUri: vscode.Uri.file(path.dirname(worktree.path)),
+      openLabel: 'Repair Worktrees',
+    });
+    if (!selected?.length) {
+      return;
+    }
+    const output = await repairWorktrees(worktree.repoRoot, selected.map((uri) => uri.fsPath));
+    await refresh();
+    void vscode.window.showInformationMessage(
+      output.trim() || `Git repaired administration data for ${selected.length} selected path${selected.length === 1 ? '' : 's'}.`,
+    );
+  });
+
+  const synchronize = async (selected?: Worktree): Promise<void> => {
+    const all = selected ? [selected] : await provider.getWorktrees();
+    const eligible = all.filter(
+      (worktree) => !worktree.isMain && !worktree.detached && !worktree.prunable && !worktree.locked && !worktree.bare,
+    );
+    if (eligible.length === 0) {
+      void vscode.window.showInformationMessage('No eligible linked worktrees are available to sync.');
+      return;
+    }
+    const strategyItem = await vscode.window.showQuickPick(
+      [
+        { label: 'Rebase', value: 'rebase' as SyncStrategy, description: 'Replay worktree commits on the base' },
+        { label: 'Merge', value: 'merge' as SyncStrategy, description: 'Merge the base into each worktree' },
+      ],
+      { title: 'Synchronize Worktrees', placeHolder: 'Choose an update strategy' },
+    );
+    if (!strategyItem) {
+      return;
+    }
+
+    const previews: Array<{ worktree: Worktree; base: string; ahead: number; behind: number; dirty: boolean }> = [];
+    for (const [repo, worktrees] of groupWorktrees(eligible)) {
+      await fetchRepository(repo);
+      const branches = await listBranches(repo);
+      const base = await vscode.window.showInputBox({
+        title: `Base branch for ${path.basename(repo)}`,
+        prompt: 'Branch or remote-tracking ref to merge/rebase onto',
+        value: config().get<string>('baseBranch', branches.remote.includes('origin/main') ? 'origin/main' : 'main'),
+      });
+      if (!base?.trim()) {
+        return;
+      }
+      for (const worktree of worktrees) {
+        const [divergence, health] = await Promise.all([
+          syncDivergence(worktree.path, base.trim()),
+          worktreeGitHealth(worktree.path),
+        ]);
+        previews.push({
+          worktree,
+          base: base.trim(),
+          ...divergence,
+          dirty: health.changedFiles + health.untrackedFiles > 0,
+        });
+      }
+    }
+    const needingSync = previews.filter((preview) => preview.behind > 0);
+    if (needingSync.length === 0) {
+      void vscode.window.showInformationMessage('Every eligible worktree is already up to date.');
+      return;
+    }
+    const hasDirty = needingSync.some((preview) => preview.dirty);
+    const detail = needingSync.map((preview) =>
+      `${path.basename(preview.worktree.path)}: ↑${preview.ahead} ↓${preview.behind}${preview.dirty ? ' • dirty' : ''} from ${preview.base}`,
+    ).join('\n');
+    const choice = await vscode.window.showWarningMessage(
+      `Synchronize ${needingSync.length} worktree${needingSync.length === 1 ? '' : 's'} with ${strategyItem.label.toLowerCase()}?`,
+      { modal: true, detail },
+      hasDirty ? 'Sync with Autostash' : 'Synchronize',
+    );
+    if (!choice) {
+      return;
+    }
+    for (const preview of needingSync) {
+      try {
+        await syncWorktree(
+          preview.worktree.path,
+          preview.base,
+          strategyItem.value,
+          preview.dirty,
+        );
+        await refresh();
+      } catch (error) {
+        const open = await vscode.window.showErrorMessage(
+          `Sync stopped at ${path.basename(preview.worktree.path)}: ${(error as Error).message}. Resolve or abort the Git operation normally, then retry.`,
+          'Open Worktree',
+        );
+        if (open === 'Open Worktree') {
+          await switchTo(preview.worktree.path);
+        }
+        return;
+      }
+    }
+    void vscode.window.showInformationMessage(`Synchronized ${needingSync.length} worktree${needingSync.length === 1 ? '' : 's'}.`);
+  };
+
+  register('worktreeManager.syncWorktree', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (worktree) {
+      await synchronize(worktree);
+    }
+  });
+  register('worktreeManager.syncAllWorktrees', () => synchronize());
+
+  register('worktreeManager.finishWorktree', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (!worktree || worktree.isMain) {
+      void vscode.window.showErrorMessage('The primary working tree cannot be finished.');
+      return;
+    }
+    if (worktree.locked || worktree.prunable) {
+      void vscode.window.showErrorMessage(`Unlock or repair ${path.basename(worktree.path)} before finishing it.`);
+      return;
+    }
+    const health = await worktreeGitHealth(worktree.path);
+    const dirty = health.changedFiles + health.untrackedFiles > 0;
+    const running = [terminals.hasApp(worktree.path) ? 'app' : '', terminals.agentKind(worktree.path) ? 'agent' : ''].filter(Boolean);
+    const detail = [
+      `Branch: ${worktree.branch ?? '(detached)'}`,
+      `Changes: ${health.changedFiles} tracked, ${health.untrackedFiles} untracked, ${health.stagedFiles} staged`,
+      `Upstream: ${health.upstream ?? 'not configured'} (↑${health.ahead ?? 0} ↓${health.behind ?? 0})`,
+      `Managed processes: ${running.join(' and ') || 'none'}`,
+      '',
+      dirty ? 'Commit, stash, or discard changes yourself before finishing.' : 'Teardown will run, managed processes will stop, and the worktree will be removed. The branch will be kept.',
+    ].join('\n');
+    if (dirty) {
+      void vscode.window.showWarningMessage(`Cannot finish ${path.basename(worktree.path)} while it is dirty.`, { modal: true, detail });
+      return;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      `Finish worktree ${path.basename(worktree.path)}?`,
+      { modal: true, detail },
+      'Finish Worktree',
+    );
+    if (choice !== 'Finish Worktree') {
+      return;
+    }
+    const teardown = await lifecycle.teardown(worktree.path);
+    if (!teardown.ok) {
+      void vscode.window.showErrorMessage('Teardown failed. The worktree and its processes were preserved; fix the failure and retry.');
+      return;
+    }
+    terminals.close(worktree.path);
+    try {
+      await removeWorktree(worktree.repoRoot, worktree.path, false);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Removal failed after teardown: ${(error as Error).message}. The branch was preserved.`);
+      return;
+    }
+    await lifecycle.forget(worktree.path);
+    await refresh();
+    let branchResult = 'branch kept';
+    if (worktree.branch) {
+      const deleteChoice = await vscode.window.showWarningMessage(
+        `The worktree was removed. Also delete local branch ${worktree.branch}?`,
+        { modal: true, detail: 'Git will refuse if the branch is not fully merged.' },
+        'Delete Local Branch',
+      );
+      if (deleteChoice === 'Delete Local Branch') {
+        try {
+          await deleteLocalBranch(worktree.repoRoot, worktree.branch);
+          branchResult = 'local branch deleted';
+        } catch (error) {
+          branchResult = `branch kept (${(error as Error).message})`;
+        }
+      }
+    }
+    void vscode.window.showInformationMessage(`Finished ${path.basename(worktree.path)}: worktree removed; ${branchResult}.`);
+  });
+
   register('worktreeManager.removeWorktree', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (!worktree) {
@@ -418,6 +686,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
     if (worktree.isMain) {
       void vscode.window.showErrorMessage(
         'The primary working tree cannot be removed with `git worktree remove`.',
+      );
+      return;
+    }
+    if (worktree.locked) {
+      void vscode.window.showErrorMessage(
+        `Unlock ${path.basename(worktree.path)} before removing it${worktree.lockReason ? ` (${worktree.lockReason})` : ''}.`,
       );
       return;
     }
@@ -765,6 +1039,28 @@ async function pickWorktree(
     { placeHolder, matchOnDescription: true, matchOnDetail: true },
   );
   return picked?.worktree;
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fsp.stat(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function groupWorktrees(worktrees: Worktree[]): Map<string, Worktree[]> {
+  const grouped = new Map<string, Worktree[]>();
+  for (const worktree of worktrees) {
+    const siblings = grouped.get(worktree.repoRoot);
+    if (siblings) {
+      siblings.push(worktree);
+    } else {
+      grouped.set(worktree.repoRoot, [worktree]);
+    }
+  }
+  return grouped;
 }
 
 async function updateStatus(

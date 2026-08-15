@@ -411,6 +411,69 @@ export async function removeWorktree(repo: string, worktreePath: string, force: 
   }
 }
 
+export async function lockWorktree(repo: string, worktreePath: string, reason?: string): Promise<void> {
+  const args = ['worktree', 'lock'];
+  if (reason?.trim()) {
+    args.push('--reason', reason.trim());
+  }
+  args.push(worktreePath);
+  await git(repo, args);
+}
+
+export async function unlockWorktree(repo: string, worktreePath: string): Promise<void> {
+  await git(repo, ['worktree', 'unlock', worktreePath]);
+}
+
+export async function moveWorktree(repo: string, worktreePath: string, destination: string): Promise<void> {
+  await git(repo, ['worktree', 'move', worktreePath, destination]);
+}
+
+export async function repairWorktrees(repo: string, worktreePaths: string[]): Promise<string> {
+  return git(repo, ['worktree', 'repair', ...worktreePaths]);
+}
+
+export async function worktreeHasSubmodules(worktreePath: string): Promise<boolean> {
+  return exists(path.join(worktreePath, '.gitmodules'));
+}
+
+export async function deleteLocalBranch(repo: string, branch: string): Promise<void> {
+  await git(repo, ['branch', '-d', branch]);
+}
+
+export type SyncStrategy = 'rebase' | 'merge';
+
+export interface SyncDivergence {
+  ahead: number;
+  behind: number;
+}
+
+export async function fetchRepository(repo: string): Promise<void> {
+  await git(repo, ['fetch', '--all', '--prune']);
+}
+
+export async function syncDivergence(worktreePath: string, base: string): Promise<SyncDivergence> {
+  const output = (await git(worktreePath, ['rev-list', '--left-right', '--count', `HEAD...${base}`])).trim();
+  const match = /^(\d+)\s+(\d+)$/.exec(output);
+  if (!match) {
+    throw new Error(`Could not calculate divergence from ${base}`);
+  }
+  return { ahead: Number(match[1]), behind: Number(match[2]) };
+}
+
+export async function syncWorktree(
+  worktreePath: string,
+  base: string,
+  strategy: SyncStrategy,
+  autostash = false,
+): Promise<void> {
+  const args: string[] = [strategy];
+  if (autostash) {
+    args.push('--autostash');
+  }
+  args.push(base);
+  await git(worktreePath, args);
+}
+
 async function exists(target: string): Promise<boolean> {
   try {
     await fsp.stat(target);
