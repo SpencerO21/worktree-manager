@@ -40,6 +40,12 @@ opens each one in its own window with a click.
   starts. Existing Superset lifecycle configurations work without modification.
 - **Agent chats.** Each worktree lists its recent Claude Code and Codex sessions; clicking one
   opens the worktree in a new window and resumes the chat there.
+- **Runtime control center.** Declared local services appear below each worktree with ports,
+  clickable URLs, and optional health checks. TreeHugger-managed apps can be revealed, restarted,
+  or stopped without affecting another worktree.
+- **Live agents.** Active TreeHugger-launched agents are visually distinct from chat history and
+  can be focused or stopped. Optional initial prompts are passed through the terminal environment,
+  so prompt text is never interpolated into a shell command.
 - **Deleted worktrees stay deleted.** Removing a worktree's directory by hand leaves git still
   listing it; the view runs `git worktree prune` when it finds such a record, so those rows go
   away on their own. With `worktreeManager.pruneMissingWorktrees` turned off they are kept and
@@ -64,6 +70,9 @@ opens each one in its own window with a click.
 | `Worktrees: Toggle Pin` | Keep a worktree or repository above its siblings |
 | `Worktrees: Reveal in Source Control` | Open VS Code's Source Control view for a worktree |
 | `Worktrees: Migrate Worktree Changes with VS Code` | Hand off uncommitted-change migration to VS Code's built-in Git command when available |
+| `Worktrees: Reveal App Terminal` / `Restart App` / `Stop App` | Control only the selected worktree's managed app terminals |
+| `Worktrees: Focus Active Agent` / `Stop Active Agent` | Control a TreeHugger-launched agent terminal |
+| `Worktrees: Open Service` | Open a configured local service URL |
 
 A status bar entry shows the current worktree and opens the switcher.
 
@@ -100,6 +109,29 @@ worktree:
   ]
 }
 ```
+
+Services and their worktree-local environment inputs can be declared alongside the lifecycle
+commands:
+
+```json
+{
+  "environment": {
+    "files": [".env", ".env.ports"],
+    "secrets": ["ADMIN_TOKEN"]
+  },
+  "services": [
+    {
+      "name": "Web",
+      "url": "http://localhost:${PORT}",
+      "healthcheck": "/health"
+    }
+  ]
+}
+```
+
+TreeHugger reads declared environment files only to resolve service URLs. A URL referencing a key
+listed under `environment.secrets` is hidden completely. Health checks are limited to localhost
+and use a short timeout.
 
 - `setup` commands run in order after **New Worktree**. **Run App** also ensures setup has
   completed, which makes existing worktrees just as easy to start. Successful setup is remembered

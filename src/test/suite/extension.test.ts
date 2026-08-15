@@ -57,6 +57,12 @@ describe('TreeHugger - Worktree Manager', () => {
       'worktreeManager.togglePinned',
       'worktreeManager.revealInSourceControl',
       'worktreeManager.migrateWorktreeChanges',
+      'worktreeManager.openService',
+      'worktreeManager.revealApp',
+      'worktreeManager.restartApp',
+      'worktreeManager.stopApp',
+      'worktreeManager.focusAgent',
+      'worktreeManager.stopAgent',
     ]) {
       assert.ok(commands.includes(command), `${command} is not registered`);
     }

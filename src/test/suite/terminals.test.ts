@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { appTerminalName, TerminalManager, terminalName } from '../../terminals';
+import { agentTerminalName, appTerminalName, TerminalManager, terminalName } from '../../terminals';
 
 const projects = path.join(process.env.WT_FIXTURE_ROOT ?? '', 'projects');
 const featureWorktree = path.join(projects, 'demo-feature-x');
@@ -100,11 +100,37 @@ describe('TerminalManager', () => {
 
   it('tracks the agent associated with a worktree terminal', () => {
     const manager = make();
-    manager.runAgent(featureWorktree, 'Codex', 'true');
+    const terminal = manager.runAgent(featureWorktree, 'Codex', 'true', {
+      prompt: 'review this; echo unsafe',
+    });
 
     assert.strictEqual(manager.agentKind(featureWorktree), 'Codex');
+    assert.strictEqual(terminal.name, agentTerminalName(featureWorktree, 'Codex'));
+    const options = terminal.creationOptions as vscode.TerminalOptions;
+    assert.strictEqual(options.env?.WORKTREE_MANAGER_AGENT_PROMPT, 'review this; echo unsafe');
     manager.close(featureWorktree);
     assert.strictEqual(manager.agentKind(featureWorktree), undefined);
+  });
+
+  it('adopts a restored managed agent instead of duplicating it', () => {
+    const first = make();
+    const terminal = first.runAgent(featureWorktree, 'Claude Code', 'true');
+    first.dispose();
+
+    const restored = make();
+
+    assert.strictEqual(restored.agentState(featureWorktree)?.terminal, terminal);
+    assert.strictEqual(restored.runAgent(featureWorktree, 'Claude Code', 'false'), terminal);
+  });
+
+  it('stops apps only in the selected worktree', () => {
+    const manager = make();
+    manager.runApp(featureWorktree, ['true']);
+    manager.runApp(mainWorktree, ['true']);
+
+    assert.strictEqual(manager.stopApp(featureWorktree), true);
+    assert.strictEqual(manager.hasApp(featureWorktree), false);
+    assert.strictEqual(manager.hasApp(mainWorktree), true);
   });
 
   it('keeps app terminals separate from the ordinary worktree terminal', () => {

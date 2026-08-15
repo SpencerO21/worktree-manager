@@ -10,8 +10,10 @@ import {
 import { WorktreeHealth, WorktreeHealthIndex, worktreeChangeCount } from './health';
 import { LifecycleManager } from './lifecycle';
 import { AgentSession, CodexIndex, sessionsForWorktree } from './sessions';
-import { TerminalManager } from './terminals';
+import { ResolvedService, resolveServices } from './services';
+import { ManagedAgent, TerminalManager } from './terminals';
 import { OpenWindowRegistry } from './windows';
+import { loadWorkspaceConfig } from './workspaceConfig';
 
 const PINNED_KEY = 'worktreeManager.pinned';
 
@@ -189,6 +191,60 @@ export class SessionNode extends vscode.TreeItem {
   }
 }
 
+export class ActiveAgentNode extends vscode.TreeItem {
+  constructor(readonly worktreePath: string, readonly agent: ManagedAgent) {
+    super(`${agent.kind} agent`, vscode.TreeItemCollapsibleState.None);
+    this.description = 'active';
+    this.iconPath = new vscode.ThemeIcon('pulse', new vscode.ThemeColor('charts.green'));
+    this.contextValue = 'active-agent';
+    this.tooltip = `Active ${agent.kind} terminal in ${worktreePath}`;
+    this.command = {
+      command: 'worktreeManager.focusAgent',
+      title: 'Focus Agent Terminal',
+      arguments: [this],
+    };
+  }
+}
+
+export class ServiceNode extends vscode.TreeItem {
+  constructor(readonly worktreePath: string, readonly service: ResolvedService) {
+    super(service.name, vscode.TreeItemCollapsibleState.None);
+    const address = service.port ? `port ${service.port}` : service.url ? new URL(service.url).host : '';
+    this.description = [service.health, address].filter(Boolean).join(' • ');
+    const error = service.health === 'unhealthy' || service.health === 'malformed';
+    const icon = service.health === 'healthy'
+      ? 'pass-filled'
+      : error
+        ? 'error'
+        : service.health === 'stopped'
+          ? 'debug-stop'
+          : 'globe';
+    const color = service.health === 'healthy'
+      ? new vscode.ThemeColor('charts.green')
+      : error
+        ? new vscode.ThemeColor('list.errorForeground')
+        : undefined;
+    this.iconPath = new vscode.ThemeIcon(icon, color);
+    this.contextValue = service.url ? 'worktree-service' : 'worktree-service-unavailable';
+    this.tooltip = new vscode.MarkdownString(
+      [
+        `**${service.name}**`,
+        '',
+        `- Health: ${service.health}`,
+        service.url ? `- URL: ${service.url}` : '',
+        service.detail ? `- ${service.detail}` : '',
+      ].filter(Boolean).join('\n'),
+    );
+    if (service.url) {
+      this.command = {
+        command: 'worktreeManager.openService',
+        title: 'Open Service',
+        arguments: [this],
+      };
+    }
+  }
+}
+
 export class MessageNode extends vscode.TreeItem {
   constructor(label: string, icon = 'info') {
     super(label, vscode.TreeItemCollapsibleState.None);
@@ -197,7 +253,7 @@ export class MessageNode extends vscode.TreeItem {
   }
 }
 
-type Node = RepositoryNode | WorktreeNode | SessionNode | MessageNode;
+type Node = RepositoryNode | WorktreeNode | SessionNode | ActiveAgentNode | ServiceNode | MessageNode;
 
 export interface WorktreeDiscoveryContext {
   scope: 'currentRepository' | 'searchPaths';
@@ -217,7 +273,7 @@ export class WorktreeTreeProvider implements vscode.TreeDataProvider<Node>, vsco
   constructor(
     private readonly openWindows: OpenWindowRegistry,
     lifecycle: LifecycleManager,
-    terminals: TerminalManager,
+    private readonly terminals: TerminalManager,
     private readonly context: vscode.ExtensionContext,
   ) {
     this.health = new WorktreeHealthIndex(lifecycle, terminals);
@@ -324,7 +380,7 @@ export class WorktreeTreeProvider implements vscode.TreeDataProvider<Node>, vsco
       return element.children;
     }
     if (element instanceof WorktreeNode) {
-      return this.sessionNodes(element.worktree);
+      return this.worktreeChildren(element.worktree);
     }
     return [];
   }
@@ -421,19 +477,40 @@ export class WorktreeTreeProvider implements vscode.TreeDataProvider<Node>, vsco
     return new Set(this.context.globalState.get<string[]>(PINNED_KEY, []));
   }
 
-  private async sessionNodes(worktree: Worktree): Promise<Node[]> {
+  private async worktreeChildren(worktree: Worktree): Promise<Node[]> {
     const config = vscode.workspace.getConfiguration('worktreeManager');
-    if (!config.get<boolean>('showSessions', true)) {
-      return [];
+    const nodes: Node[] = [];
+    const active = this.terminals.agentState(worktree.path);
+    if (active) {
+      nodes.push(new ActiveAgentNode(worktree.path, active));
     }
 
-    const limit = config.get<number>('maxSessionsPerWorktree', 10);
-    const sessions = await sessionsForWorktree(worktree.path, this.codex, limit);
-
-    if (sessions.length === 0) {
-      return [new MessageNode('No Claude Code or Codex chats yet', 'circle-slash')];
+    try {
+      const workspace = await loadWorkspaceConfig(worktree.path, worktree.repoRoot);
+      const services = await resolveServices(
+        workspace,
+        worktree.path,
+        worktree.repoRoot,
+        this.terminals.hasApp(worktree.path),
+      );
+      nodes.push(...services.map((service) => new ServiceNode(worktree.path, service)));
+    } catch (error) {
+      nodes.push(new MessageNode(`Services unavailable: ${(error as Error).message}`, 'warning'));
     }
-    return sessions.map((session) => new SessionNode(session));
+
+    if (config.get<boolean>('showSessions', true)) {
+      const limit = config.get<number>('maxSessionsPerWorktree', 10);
+      try {
+        const sessions = await sessionsForWorktree(worktree.path, this.codex, limit);
+        nodes.push(...sessions.map((session) => new SessionNode(session)));
+        if (sessions.length === 0 && !active) {
+          nodes.push(new MessageNode('No Claude Code or Codex chats yet', 'circle-slash'));
+        }
+      } catch {
+        nodes.push(new MessageNode('Agent history is unavailable', 'warning'));
+      }
+    }
+    return nodes;
   }
 }
 

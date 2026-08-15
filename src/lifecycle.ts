@@ -281,6 +281,19 @@ export class LifecycleManager implements vscode.Disposable {
     });
   }
 
+  revealApp(worktreePath: string): boolean {
+    return this.terminals.showApp(worktreePath);
+  }
+
+  stopApp(worktreePath: string): boolean {
+    return this.terminals.stopApp(worktreePath);
+  }
+
+  async restartApp(worktreePath: string): Promise<void> {
+    this.terminals.stopApp(worktreePath);
+    await this.runApp(worktreePath);
+  }
+
   dispose(): void {
     this.stateEmitter.dispose();
   }

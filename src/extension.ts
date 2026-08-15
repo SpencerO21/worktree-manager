@@ -5,7 +5,14 @@ import { WorktreeDiagnostics } from './diagnostics';
 import { gitVersion, pruneWorktrees, removeWorktree, Worktree } from './git';
 import { LifecycleManager } from './lifecycle';
 import { TerminalManager } from './terminals';
-import { RepositoryNode, SessionNode, WorktreeNode, WorktreeTreeProvider } from './tree';
+import {
+  ActiveAgentNode,
+  RepositoryNode,
+  ServiceNode,
+  SessionNode,
+  WorktreeNode,
+  WorktreeTreeProvider,
+} from './tree';
 import { OpenWindowRegistry } from './windows';
 import { loadWorkspaceConfig } from './workspaceConfig';
 
@@ -360,13 +367,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
         terminals.runAgent(
           created,
           'Codex',
-          commandWithPrompt(config().get<string>('codexCommand', 'codex'), task),
+          config().get<string>('codexCommand', 'codex'),
+          { prompt: task },
         );
       } else if (action.value === 'claude') {
         terminals.runAgent(
           created,
           'Claude Code',
-          commandWithPrompt(config().get<string>('claudeCommand', 'claude'), task),
+          config().get<string>('claudeCommand', 'claude'),
+          { prompt: task },
         );
       }
     }
@@ -510,13 +519,79 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
     await switchTo(session.cwd, { command });
   });
 
+  register('worktreeManager.openService', async (node?: ServiceNode) => {
+    if (node instanceof ServiceNode && node.service.url) {
+      await vscode.env.openExternal(vscode.Uri.parse(node.service.url));
+    }
+  });
+
+  register('worktreeManager.revealApp', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (worktree && !lifecycle.revealApp(worktree.path)) {
+      void vscode.window.showInformationMessage('No TreeHugger-managed app is running there.');
+    }
+  });
+
+  register('worktreeManager.stopApp', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (!worktree || !terminals.hasApp(worktree.path)) {
+      return;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      `Stop the app for ${path.basename(worktree.path)}?`,
+      { modal: true },
+      'Stop App',
+    );
+    if (choice === 'Stop App') {
+      lifecycle.stopApp(worktree.path);
+    }
+  });
+
+  register('worktreeManager.restartApp', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (worktree) {
+      await lifecycle.restartApp(worktree.path);
+    }
+  });
+
+  register('worktreeManager.focusAgent', async (node?: ActiveAgentNode | WorktreeNode) => {
+    const worktreePath = node instanceof ActiveAgentNode
+      ? node.worktreePath
+      : (await targetWorktree(node instanceof WorktreeNode ? node : undefined))?.path;
+    if (worktreePath && !terminals.showAgent(worktreePath)) {
+      void vscode.window.showInformationMessage('No TreeHugger-managed agent is active there.');
+    }
+  });
+
+  register('worktreeManager.stopAgent', async (node?: ActiveAgentNode | WorktreeNode) => {
+    const worktreePath = node instanceof ActiveAgentNode
+      ? node.worktreePath
+      : (await targetWorktree(node instanceof WorktreeNode ? node : undefined))?.path;
+    if (!worktreePath || !terminals.agentState(worktreePath)) {
+      return;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      `Stop the active agent in ${path.basename(worktreePath)}?`,
+      { modal: true },
+      'Stop Agent',
+    );
+    if (choice === 'Stop Agent') {
+      terminals.stopAgent(worktreePath);
+    }
+  });
+
   register('worktreeManager.newClaudeSession', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (worktree) {
+      const prompt = await optionalAgentPrompt('Claude Code');
+      if (prompt === undefined) {
+        return;
+      }
       terminals.runAgent(
         worktree.path,
         'Claude Code',
         config().get<string>('claudeCommand', 'claude'),
+        { prompt },
       );
     }
   });
@@ -524,10 +599,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
   register('worktreeManager.newCodexSession', async (node?: WorktreeNode) => {
     const worktree = await targetWorktree(node);
     if (worktree) {
+      const prompt = await optionalAgentPrompt('Codex');
+      if (prompt === undefined) {
+        return;
+      }
       terminals.runAgent(
         worktree.path,
         'Codex',
         config().get<string>('codexCommand', 'codex'),
+        { prompt },
       );
     }
   });
@@ -600,13 +680,12 @@ async function prepareCreatedWorktree(
   return choice === 'Open Anyway';
 }
 
-/** Quote a task as one argument for the user's default terminal shell. */
-function commandWithPrompt(command: string, task: string): string {
-  const prompt = task.replace(/\s+/g, ' ').trim();
-  if (process.platform === 'win32') {
-    return `${command} "${prompt.replace(/(["^&|<>])/g, '^$1')}"`;
-  }
-  return `${command} '${prompt.replace(/'/g, `'"'"'`)}'`;
+function optionalAgentPrompt(agent: string): Thenable<string | undefined> {
+  return vscode.window.showInputBox({
+    title: `Start ${agent}`,
+    prompt: 'Optional initial prompt (leave empty to start interactively)',
+    placeHolder: 'Describe the task for this agent',
+  });
 }
 
 /**

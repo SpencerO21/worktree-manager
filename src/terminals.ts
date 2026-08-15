@@ -10,6 +10,18 @@ export function appTerminalName(worktreePath: string, index = 0): string {
   return `App: ${terminalName(worktreePath)}${suffix}`;
 }
 
+export function agentTerminalName(worktreePath: string, kind: string): string {
+  return `Agent: ${kind}: ${terminalName(worktreePath)}`;
+}
+
+export interface ManagedAgent {
+  terminal: vscode.Terminal;
+  kind: string;
+  startedAt: number;
+}
+
+export type ManagedAppState = 'running' | 'stopped';
+
 function key(worktreePath: string): string {
   return path.resolve(worktreePath);
 }
@@ -23,12 +35,14 @@ function key(worktreePath: string): string {
 export class TerminalManager implements vscode.Disposable {
   private readonly terminals = new Map<string, vscode.Terminal>();
   private readonly appTerminals = new Map<string, vscode.Terminal[]>();
-  private readonly agentTerminals = new Map<string, { terminal: vscode.Terminal; kind: string }>();
+  private readonly agentTerminals = new Map<string, ManagedAgent>();
+  private readonly appStates = new Map<string, ManagedAppState>();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly stateEmitter = new vscode.EventEmitter<string>();
   readonly onDidChangeState = this.stateEmitter.event;
 
   constructor() {
+    this.adoptRestoredTerminals();
     this.disposables.push(
       vscode.window.onDidCloseTerminal((closed) => {
         const changed = new Set<string>();
@@ -42,6 +56,7 @@ export class TerminalManager implements vscode.Disposable {
           const remaining = terminals.filter((terminal) => terminal !== closed);
           if (remaining.length === 0) {
             this.appTerminals.delete(worktreePath);
+            this.appStates.set(worktreePath, 'stopped');
             changed.add(worktreePath);
           } else if (remaining.length !== terminals.length) {
             this.appTerminals.set(worktreePath, remaining);
@@ -92,17 +107,70 @@ export class TerminalManager implements vscode.Disposable {
     return terminal;
   }
 
-  /** Start an agent command and mark its worktree terminal as active. */
-  runAgent(worktreePath: string, kind: string, command: string): vscode.Terminal {
-    const terminal = this.run(worktreePath, command);
+  /** Start an agent in its own worktree-scoped terminal. Prompt text travels via env, not shell. */
+  runAgent(
+    worktreePath: string,
+    kind: string,
+    command: string,
+    options: { prompt?: string } = {},
+  ): vscode.Terminal {
     const resolved = key(worktreePath);
-    this.agentTerminals.set(resolved, { terminal, kind });
+    const existing = this.agentTerminals.get(resolved);
+    if (existing) {
+      existing.terminal.show();
+      return existing.terminal;
+    }
+    const env: Record<string, string> = {
+      WORKTREE_MANAGER_AGENT_KIND: kind,
+      WORKTREE_MANAGER_WORKTREE_PATH: resolved,
+    };
+    let invocation = command;
+    if (options.prompt?.trim()) {
+      env.WORKTREE_MANAGER_AGENT_PROMPT = options.prompt;
+      invocation += process.platform === 'win32'
+        ? ' "$env:WORKTREE_MANAGER_AGENT_PROMPT"'
+        : ' "$WORKTREE_MANAGER_AGENT_PROMPT"';
+    }
+    const terminal = vscode.window.createTerminal({
+      name: agentTerminalName(worktreePath, kind),
+      cwd: worktreePath,
+      env,
+      iconPath: new vscode.ThemeIcon('hubot'),
+    });
+    terminal.sendText(invocation);
+    terminal.show();
+    this.agentTerminals.set(resolved, { terminal, kind, startedAt: Date.now() });
     this.stateEmitter.fire(resolved);
     return terminal;
   }
 
   agentKind(worktreePath: string): string | undefined {
     return this.agentTerminals.get(key(worktreePath))?.kind;
+  }
+
+  agentState(worktreePath: string): ManagedAgent | undefined {
+    return this.agentTerminals.get(key(worktreePath));
+  }
+
+  showAgent(worktreePath: string): boolean {
+    const agent = this.agentTerminals.get(key(worktreePath));
+    if (!agent) {
+      return false;
+    }
+    agent.terminal.show();
+    return true;
+  }
+
+  stopAgent(worktreePath: string): boolean {
+    const resolved = key(worktreePath);
+    const agent = this.agentTerminals.get(resolved);
+    if (!agent) {
+      return false;
+    }
+    this.agentTerminals.delete(resolved);
+    agent.terminal.dispose();
+    this.stateEmitter.fire(resolved);
+    return true;
   }
 
   /** Reveal an app that is already running for this worktree. */
@@ -117,6 +185,25 @@ export class TerminalManager implements vscode.Disposable {
 
   hasApp(worktreePath: string): boolean {
     return (this.appTerminals.get(key(worktreePath))?.length ?? 0) > 0;
+  }
+
+  appState(worktreePath: string): ManagedAppState {
+    return this.hasApp(worktreePath) ? 'running' : (this.appStates.get(key(worktreePath)) ?? 'stopped');
+  }
+
+  stopApp(worktreePath: string): boolean {
+    const resolved = key(worktreePath);
+    const apps = this.appTerminals.get(resolved);
+    if (!apps?.length) {
+      return false;
+    }
+    this.appTerminals.delete(resolved);
+    this.appStates.set(resolved, 'stopped');
+    for (const terminal of apps) {
+      terminal.dispose();
+    }
+    this.stateEmitter.fire(resolved);
+    return true;
   }
 
   /** Start each configured app command in its own worktree-scoped terminal. */
@@ -135,7 +222,11 @@ export class TerminalManager implements vscode.Disposable {
       const terminal = vscode.window.createTerminal({
         name: appTerminalName(worktreePath, index),
         cwd: options.cwd ?? worktreePath,
-        env: options.env,
+        env: {
+          ...options.env,
+          WORKTREE_MANAGER_APP: '1',
+          WORKTREE_MANAGER_WORKTREE_PATH: key(worktreePath),
+        },
         iconPath: new vscode.ThemeIcon('play'),
       });
       terminal.sendText(command);
@@ -144,6 +235,7 @@ export class TerminalManager implements vscode.Disposable {
     if (terminals.length > 0) {
       const resolved = key(worktreePath);
       this.appTerminals.set(resolved, terminals);
+      this.appStates.set(resolved, 'running');
       this.stateEmitter.fire(resolved);
       terminals[0].show();
     }
@@ -157,10 +249,11 @@ export class TerminalManager implements vscode.Disposable {
       this.terminals.delete(resolved);
       terminal.dispose();
     }
-    this.agentTerminals.delete(resolved);
+    this.stopAgent(resolved);
     const apps = this.appTerminals.get(resolved);
     if (apps) {
       this.appTerminals.delete(resolved);
+      this.appStates.set(resolved, 'stopped');
       for (const app of apps) {
         app.dispose();
       }
@@ -175,7 +268,33 @@ export class TerminalManager implements vscode.Disposable {
     this.disposables.length = 0;
     this.terminals.clear();
     this.appTerminals.clear();
+    this.appStates.clear();
     this.agentTerminals.clear();
     this.stateEmitter.dispose();
   }
+
+  private adoptRestoredTerminals(): void {
+    for (const terminal of vscode.window.terminals) {
+      const options = terminal.creationOptions as vscode.TerminalOptions;
+      const env = options.env;
+      const cwd = env?.WORKTREE_MANAGER_WORKTREE_PATH ?? terminalCwd(options.cwd);
+      if (!cwd) {
+        continue;
+      }
+      const resolved = key(cwd);
+      const kind = env?.WORKTREE_MANAGER_AGENT_KIND;
+      if (kind) {
+        this.agentTerminals.set(resolved, { terminal, kind, startedAt: 0 });
+      } else if (env?.WORKTREE_MANAGER_APP === '1') {
+        const apps = this.appTerminals.get(resolved) ?? [];
+        apps.push(terminal);
+        this.appTerminals.set(resolved, apps);
+        this.appStates.set(resolved, 'running');
+      }
+    }
+  }
+}
+
+function terminalCwd(cwd: string | vscode.Uri | undefined): string | undefined {
+  return typeof cwd === 'string' ? cwd : cwd?.scheme === 'file' ? cwd.fsPath : undefined;
 }
