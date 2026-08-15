@@ -46,6 +46,15 @@ opens each one in its own window with a click.
 - **Live agents.** Active TreeHugger-launched agents are visually distinct from chat history and
   can be focused or stopped. Optional initial prompts are passed through the terminal environment,
   so prompt text is never interpolated into a shell command.
+- **Safe Git maintenance.** Lock worktrees with an accessible reason, unlock them, move eligible
+  linked worktrees, or guide Git's repair command after a manual move. Primary, locked, missing,
+  and submodule worktrees are guarded before Git mutates anything.
+- **Preview before syncing.** Fetch once per repository, preview each linked worktree's divergence,
+  then rebase or merge selected/all eligible worktrees. Dirty trees require an explicit autostash
+  confirmation, and a conflict stops the batch with normal Git recovery instructions.
+- **Finish as a workflow.** Review changes, upstream divergence, and managed processes together;
+  clean worktrees can run teardown and be removed. Optional local-branch deletion is a separate,
+  later confirmation and uses Git's non-force deletion.
 - **Deleted worktrees stay deleted.** Removing a worktree's directory by hand leaves git still
   listing it; the view runs `git worktree prune` when it finds such a record, so those rows go
   away on their own. With `worktreeManager.pruneMissingWorktrees` turned off they are kept and
@@ -73,6 +82,10 @@ opens each one in its own window with a click.
 | `Worktrees: Reveal App Terminal` / `Restart App` / `Stop App` | Control only the selected worktree's managed app terminals |
 | `Worktrees: Focus Active Agent` / `Stop Active Agent` | Control a TreeHugger-launched agent terminal |
 | `Worktrees: Open Service` | Open a configured local service URL |
+| `Worktrees: Lock Worktree` / `Unlock Worktree` | Protect or release a linked worktree, optionally recording a reason |
+| `Worktrees: Move Worktree` / `Repair Worktrees` | Use Git's supported move and guided repair operations |
+| `Worktrees: Sync Worktree with Base Branch` / `Sync All Worktrees with Base Branch` | Preview and merge/rebase eligible worktrees, with explicit autostash handling |
+| `Worktrees: Finish Worktree` | Review safety state, run teardown, remove the worktree, and optionally delete its local branch |
 
 A status bar entry shows the current worktree and opens the switcher.
 
@@ -84,6 +97,7 @@ A status bar entry shows the current worktree and opens the switcher.
 | `worktreeManager.searchPaths` | `["~/projects"]` | Directories scanned one level deep for repos, when scope is `searchPaths` |
 | `worktreeManager.revealViewOnSwitch` | `true` | Reopen the Worktrees view after the window reloads |
 | `worktreeManager.newWorktreePath` | `~/projects/{repoName}-{branch}` | Proposed location for new worktrees |
+| `worktreeManager.baseBranch` | `main` | Editable base branch proposed by synchronization commands |
 | `worktreeManager.pruneMissingWorktrees` | `true` | Prune worktrees whose directory no longer exists instead of listing them |
 | `worktreeManager.filter` | `all` | Show all worktrees or only one operational state |
 | `worktreeManager.sortBy` | `name` | Sort worktrees by name, recent commit activity, or status |

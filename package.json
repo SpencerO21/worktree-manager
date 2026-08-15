@@ -114,6 +114,48 @@
         "icon": "$(tools)"
       },
       {
+        "command": "worktreeManager.syncWorktree",
+        "title": "Sync Worktree with Base Branch",
+        "category": "Worktrees",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "worktreeManager.syncAllWorktrees",
+        "title": "Sync All Worktrees with Base Branch",
+        "category": "Worktrees",
+        "icon": "$(sync-ignored)"
+      },
+      {
+        "command": "worktreeManager.lockWorktree",
+        "title": "Lock Worktree",
+        "category": "Worktrees",
+        "icon": "$(lock)"
+      },
+      {
+        "command": "worktreeManager.unlockWorktree",
+        "title": "Unlock Worktree",
+        "category": "Worktrees",
+        "icon": "$(unlock)"
+      },
+      {
+        "command": "worktreeManager.moveWorktree",
+        "title": "Move Worktree",
+        "category": "Worktrees",
+        "icon": "$(move)"
+      },
+      {
+        "command": "worktreeManager.repairWorktrees",
+        "title": "Repair Worktrees",
+        "category": "Worktrees",
+        "icon": "$(wrench)"
+      },
+      {
+        "command": "worktreeManager.finishWorktree",
+        "title": "Finish Worktree",
+        "category": "Worktrees",
+        "icon": "$(check-all)"
+      },
+      {
         "command": "worktreeManager.removeWorktree",
         "title": "Remove Worktree",
         "category": "Worktrees",
@@ -302,6 +344,11 @@
           "command": "worktreeManager.refresh",
           "when": "view == worktreeManager.tree",
           "group": "navigation@4"
+        },
+        {
+          "command": "worktreeManager.syncAllWorktrees",
+          "when": "view == worktreeManager.tree",
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [
@@ -391,6 +438,36 @@
           "group": "3_misc@4"
         },
         {
+          "command": "worktreeManager.syncWorktree",
+          "when": "view == worktreeManager.tree && viewItem == worktree",
+          "group": "4_git@1"
+        },
+        {
+          "command": "worktreeManager.lockWorktree",
+          "when": "view == worktreeManager.tree && viewItem == worktree",
+          "group": "4_git@2"
+        },
+        {
+          "command": "worktreeManager.unlockWorktree",
+          "when": "view == worktreeManager.tree && viewItem == worktree-locked",
+          "group": "4_git@2"
+        },
+        {
+          "command": "worktreeManager.moveWorktree",
+          "when": "view == worktreeManager.tree && viewItem == worktree",
+          "group": "4_git@3"
+        },
+        {
+          "command": "worktreeManager.repairWorktrees",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "4_git@4"
+        },
+        {
+          "command": "worktreeManager.finishWorktree",
+          "when": "view == worktreeManager.tree && viewItem == worktree",
+          "group": "9_danger@0"
+        },
+        {
           "command": "worktreeManager.removeWorktree",
           "when": "view == worktreeManager.tree && viewItem == worktree",
           "group": "9_danger@1"
@@ -472,6 +549,11 @@
           "type": "string",
           "default": "~/projects/{repoName}-{branch}",
           "markdownDescription": "Default directory for worktrees created from the view. Keeping every worktree under one parent means VS Code's workspace trust only has to be granted for that parent once. Supports `{repoPath}`, `{repoParent}`, `{repoName}` and `{branch}` (slashes in the branch become dashes), and `~`. The resolved path is always shown for editing before the worktree is created."
+        },
+        "worktreeManager.baseBranch": {
+          "type": "string",
+          "default": "main",
+          "description": "Initial base branch proposed by the worktree synchronization commands. It remains editable before Git is changed."
         },
         "worktreeManager.pruneMissingWorktrees": {
           "type": "boolean",

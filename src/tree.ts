@@ -90,6 +90,8 @@ export class WorktreeNode extends vscode.TreeItem {
     }
     this.contextValue = missing
       ? 'missing-worktree'
+      : worktree.locked
+        ? 'worktree-locked'
       : worktree.isMain
         ? 'worktree-main'
         : 'worktree';
