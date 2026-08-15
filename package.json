@@ -44,13 +44,18 @@
     "viewsWelcome": [
       {
         "view": "worktreeManager.tree",
-        "when": "!worktreeManager.allRepositories",
+        "when": "!worktreeManager.allRepositories && !worktreeManager.hasWorktreeFilter",
         "contents": "No git worktrees found for the folder open in this window.\n\nOpen a folder that lives in a git repository, or widen the view to every repository under `worktreeManager.searchPaths`.\n\n[New Worktree](command:worktreeManager.createWorktree)\n[Show All Repositories](command:worktreeManager.showAllRepositories)\n[Refresh](command:worktreeManager.refresh)"
       },
       {
         "view": "worktreeManager.tree",
-        "when": "worktreeManager.allRepositories",
+        "when": "worktreeManager.allRepositories && !worktreeManager.hasWorktreeFilter",
         "contents": "No git worktrees found.\n\nTreeHugger is looking in your open folders and in the paths listed under the `worktreeManager.searchPaths` setting.\n\n[New Worktree](command:worktreeManager.createWorktree)\n[Open Settings](command:worktreeManager.openSettings)\n[Refresh](command:worktreeManager.refresh)"
+      },
+      {
+        "view": "worktreeManager.tree",
+        "when": "worktreeManager.hasWorktreeFilter",
+        "contents": "No worktrees match the active filter.\n\n[Clear Filter](command:worktreeManager.clearWorktreeFilter)\n[Choose Filter](command:worktreeManager.filterWorktrees)"
       }
     ],
     "commands": [
@@ -107,6 +112,24 @@
         "title": "Show Diagnostics",
         "category": "Worktrees",
         "icon": "$(output)"
+      },
+      {
+        "command": "worktreeManager.filterWorktrees",
+        "title": "Filter Worktrees",
+        "category": "Worktrees",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "worktreeManager.clearWorktreeFilter",
+        "title": "Clear Worktree Filter",
+        "category": "Worktrees",
+        "icon": "$(filter-filled)"
+      },
+      {
+        "command": "worktreeManager.togglePinned",
+        "title": "Toggle Pin",
+        "category": "Worktrees",
+        "icon": "$(pin)"
       },
       {
         "command": "worktreeManager.showAllRepositories",
@@ -205,12 +228,27 @@
           "group": "navigation@3"
         },
         {
+          "command": "worktreeManager.filterWorktrees",
+          "when": "view == worktreeManager.tree && !worktreeManager.hasWorktreeFilter",
+          "group": "navigation@3"
+        },
+        {
+          "command": "worktreeManager.clearWorktreeFilter",
+          "when": "view == worktreeManager.tree && worktreeManager.hasWorktreeFilter",
+          "group": "navigation@3"
+        },
+        {
           "command": "worktreeManager.refresh",
           "when": "view == worktreeManager.tree",
           "group": "navigation@4"
         }
       ],
       "view/item/context": [
+        {
+          "command": "worktreeManager.togglePinned",
+          "when": "view == worktreeManager.tree && (viewItem =~ /^worktree/ || viewItem == repository)",
+          "group": "3_misc@0"
+        },
         {
           "command": "worktreeManager.openWorktreeNewWindow",
           "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
@@ -338,6 +376,34 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Run `git worktree prune` when the view finds a worktree whose directory no longer exists, so deleting a worktree's folder by hand also takes it out of the list. Turn this off to keep those rows visible — they are marked `missing` and can be cleared from the row's trash button — if your worktrees live on removable or network storage that is not always mounted. Locked worktrees are never pruned."
+        },
+        "worktreeManager.filter": {
+          "type": "string",
+          "enum": [
+            "all",
+            "open",
+            "dirty",
+            "running",
+            "missing",
+            "stale"
+          ],
+          "default": "all",
+          "description": "Limit the tree to worktrees matching one operational state. Use the filter button in the view title to change this quickly."
+        },
+        "worktreeManager.sortBy": {
+          "type": "string",
+          "enum": [
+            "name",
+            "recentActivity",
+            "status"
+          ],
+          "enumDescriptions": [
+            "Sort by worktree directory name.",
+            "Sort by most recent commit.",
+            "Show missing, failed, running, and dirty worktrees first."
+          ],
+          "default": "name",
+          "description": "How worktrees are sorted within each repository. Pinned worktrees always come first."
         },
         "worktreeManager.showSessions": {
           "type": "boolean",

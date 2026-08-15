@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { redactGitArgument } from '../../diagnostics';
-import { parseWorktreePorcelain } from '../../git';
+import { parseWorktreePorcelain, parseWorktreeStatus } from '../../git';
 
 describe('git worktree porcelain parsing', () => {
   it('preserves NUL-delimited paths and all worktree metadata', () => {
@@ -55,6 +55,33 @@ describe('git worktree porcelain parsing', () => {
     assert.strictEqual(worktree.path, '/repo/main');
     assert.strictEqual(worktree.branch, 'main');
     assert.strictEqual(worktree.head, 'abc');
+  });
+});
+
+describe('worktree health parsing', () => {
+  it('counts tracked, staged, and untracked changes plus upstream divergence', () => {
+    const status = parseWorktreeStatus([
+      '# branch.oid abc',
+      '# branch.head feature',
+      '# branch.upstream origin/feature',
+      '# branch.ab +3 -2',
+      '1 M. N... 100644 100644 100644 abc abc staged.ts',
+      '1 .M N... 100644 100644 100644 abc abc modified.ts',
+      '2 RM N... 100644 100644 100644 abc abc R100 renamed.ts',
+      'old-name.ts',
+      'u UU N... 100644 100644 100644 100644 abc abc abc conflict.ts',
+      '? untracked.ts',
+      '',
+    ].join('\0'));
+
+    assert.deepStrictEqual(status, {
+      changedFiles: 4,
+      stagedFiles: 3,
+      untrackedFiles: 1,
+      upstream: 'origin/feature',
+      ahead: 3,
+      behind: 2,
+    });
   });
 });
 

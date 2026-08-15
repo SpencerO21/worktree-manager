@@ -51,6 +51,9 @@ describe('TreeHugger - Worktree Manager', () => {
       'worktreeManager.removeWorktree',
       'worktreeManager.refresh',
       'worktreeManager.showDiagnostics',
+      'worktreeManager.filterWorktrees',
+      'worktreeManager.clearWorktreeFilter',
+      'worktreeManager.togglePinned',
     ]) {
       assert.ok(commands.includes(command), `${command} is not registered`);
     }
@@ -154,6 +157,10 @@ describe('TreeHugger - Worktree Manager', () => {
 
     const marker = path.join(feature.path, '.setup-ran');
     assert.deepStrictEqual(setup, { ok: true, ran: true });
+    assert.strictEqual(
+      await manager.lifecycle.setupStatus(feature.path, feature.repoRoot),
+      'ready',
+    );
     assert.strictEqual(await fs.readFile(marker, 'utf8'), await fs.realpath(path.join(projects, 'demo')));
     await fs.unlink(marker);
   });

@@ -16,6 +16,8 @@ interface LifecycleResult {
   ran: boolean;
 }
 
+export type SetupStatus = 'not-run' | 'running' | 'ready' | 'failed' | 'stale';
+
 async function rootPathFor(worktreePath: string): Promise<string> {
   const worktrees = await listWorktrees([worktreePath]);
   return worktrees.find((worktree) => worktree.isMain)?.path ?? worktreePath;
@@ -112,7 +114,12 @@ async function runTask(
   return pty.done;
 }
 
-export class LifecycleManager {
+export class LifecycleManager implements vscode.Disposable {
+  private readonly stateEmitter = new vscode.EventEmitter<string>();
+  readonly onDidChangeState = this.stateEmitter.event;
+  private readonly runningSetups = new Set<string>();
+  private readonly failedSetups = new Set<string>();
+
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly terminals: TerminalManager,
@@ -130,9 +137,33 @@ export class LifecycleManager {
   }
 
   async forget(worktreePath: string): Promise<void> {
+    const resolved = path.resolve(worktreePath);
     const state = { ...this.setupState() };
-    delete state[path.resolve(worktreePath)];
+    delete state[resolved];
     await this.context.globalState.update(SETUP_STATE_KEY, state);
+    this.runningSetups.delete(resolved);
+    this.failedSetups.delete(resolved);
+    this.stateEmitter.fire(resolved);
+  }
+
+  async setupStatus(worktreePath: string, rootPath: string): Promise<SetupStatus> {
+    const resolved = path.resolve(worktreePath);
+    if (this.runningSetups.has(resolved)) {
+      return 'running';
+    }
+    if (this.failedSetups.has(resolved)) {
+      return 'failed';
+    }
+    try {
+      const lifecycle = await resolveLifecycle('setup', worktreePath, rootPath);
+      const remembered = this.setupState()[resolved];
+      if (!remembered) {
+        return 'not-run';
+      }
+      return remembered === setupSignature(lifecycle.commands, lifecycle.cwd) ? 'ready' : 'stale';
+    } catch {
+      return 'failed';
+    }
   }
 
   async setup(worktreePath: string, options: { force?: boolean } = {}): Promise<LifecycleResult> {
@@ -146,18 +177,26 @@ export class LifecycleManager {
     try {
       lifecycle = await resolveLifecycle('setup', worktreePath, rootPath);
     } catch (error) {
+      const resolved = path.resolve(worktreePath);
+      this.failedSetups.add(resolved);
+      this.stateEmitter.fire(resolved);
       void vscode.window.showErrorMessage(`Worktree setup configuration is invalid: ${(error as Error).message}`);
       return { ok: false, ran: false };
     }
-    const signature = JSON.stringify({ commands: lifecycle.commands, cwd: lifecycle.cwd });
+    const signature = setupSignature(lifecycle.commands, lifecycle.cwd);
     if (!options.force && this.setupState()[path.resolve(worktreePath)] === signature) {
       return { ok: true, ran: false };
     }
     if (lifecycle.commands.length === 0) {
       await this.rememberSetup(worktreePath, signature);
+      this.stateEmitter.fire(path.resolve(worktreePath));
       return { ok: true, ran: false };
     }
 
+    const resolved = path.resolve(worktreePath);
+    this.runningSetups.add(resolved);
+    this.failedSetups.delete(resolved);
+    this.stateEmitter.fire(resolved);
     const ok = await runTask(
       'setup',
       worktreePath,
@@ -165,9 +204,14 @@ export class LifecycleManager {
       lifecycle.commands,
       workspaceEnvironment(worktreePath, rootPath),
     );
+    this.runningSetups.delete(resolved);
     if (ok) {
       await this.rememberSetup(worktreePath, signature);
+      this.failedSetups.delete(resolved);
+    } else {
+      this.failedSetups.add(resolved);
     }
+    this.stateEmitter.fire(resolved);
     return { ok, ran: true };
   }
 
@@ -236,4 +280,12 @@ export class LifecycleManager {
       env: workspaceEnvironment(worktreePath, rootPath),
     });
   }
+
+  dispose(): void {
+    this.stateEmitter.dispose();
+  }
+}
+
+function setupSignature(commands: string[], cwd: string): string {
+  return JSON.stringify({ commands, cwd });
 }

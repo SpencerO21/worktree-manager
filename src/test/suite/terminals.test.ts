@@ -95,6 +95,16 @@ describe('TerminalManager', () => {
     const options = first[0].creationOptions as vscode.TerminalOptions;
     assert.strictEqual(options.cwd, featureWorktree);
     assert.strictEqual(options.env?.WORKTREE_WORKSPACE_NAME, 'demo-feature-x');
+    assert.strictEqual(manager.hasApp(featureWorktree), true);
+  });
+
+  it('tracks the agent associated with a worktree terminal', () => {
+    const manager = make();
+    manager.runAgent(featureWorktree, 'Codex', 'true');
+
+    assert.strictEqual(manager.agentKind(featureWorktree), 'Codex');
+    manager.close(featureWorktree);
+    assert.strictEqual(manager.agentKind(featureWorktree), undefined);
   });
 
   it('keeps app terminals separate from the ordinary worktree terminal', () => {
