@@ -15,13 +15,33 @@ export interface Worktree {
   branch?: string;
   head?: string;
   detached: boolean;
+  /** True when the record describes a bare repository rather than a checkout. */
+  bare: boolean;
   locked: boolean;
+  /** Optional explanation recorded by `git worktree lock --reason`. */
+  lockReason?: string;
   /** git considers the record stale — usually because the directory is gone. */
   prunable: boolean;
   /** git's own explanation for `prunable`, e.g. "gitdir file points to non-existent location". */
   prunableReason?: string;
   /** True for the repository's primary working tree (the one that owns .git). */
   isMain: boolean;
+}
+
+export interface GitDiagnosticEvent {
+  args: string[];
+  cwd?: string;
+  durationMs: number;
+  error?: string;
+}
+
+export type GitDiagnosticListener = (event: GitDiagnosticEvent) => void;
+
+let diagnosticListener: GitDiagnosticListener | undefined;
+
+/** Install the per-extension-host listener used by the TreeHugger output channel. */
+export function setGitDiagnosticListener(listener: GitDiagnosticListener | undefined): void {
+  diagnosticListener = listener;
 }
 
 export function expandHome(p: string): string {
@@ -134,12 +154,11 @@ export async function listWorktrees(
 
 async function readWorktrees(repo: string): Promise<Worktree[]> {
   try {
-    const { stdout } = await exec('git', ['worktree', 'list', '--porcelain'], {
-      cwd: repo,
-      maxBuffer: 8 * 1024 * 1024,
-    });
+    const stdout = await executeGit(repo, ['worktree', 'list', '--porcelain', '-z']);
     return parseWorktreePorcelain(stdout, repo);
   } catch {
+    // Discovery is intentionally isolated per repository. The diagnostic listener
+    // has the actionable failure; callers still receive every healthy repository.
     return [];
   }
 }
@@ -167,18 +186,40 @@ function compareWorktrees(a: Worktree, b: Worktree): number {
 
 /** Run git in `cwd`, throwing an Error carrying git's own stderr for display. */
 export async function git(cwd: string, args: string[]): Promise<string> {
+  return executeGit(cwd, args);
+}
+
+/** Git version used by the diagnostics report. */
+export async function gitVersion(): Promise<string> {
+  return (await executeGit(undefined, ['--version'])).trim();
+}
+
+async function executeGit(cwd: string | undefined, args: string[]): Promise<string> {
+  const startedAt = Date.now();
   try {
     const { stdout } = await exec('git', args, { cwd, maxBuffer: 8 * 1024 * 1024 });
+    diagnosticListener?.({ args: [...args], cwd, durationMs: Date.now() - startedAt });
     return stdout;
   } catch (error: any) {
-    const stderr = String(error?.stderr ?? '').trim();
-    // git reports progress on stderr too, so the diagnosis is the fatal/error line
-    // rather than whatever happened to be printed first.
-    const lines = stderr.split('\n').map((line) => line.trim()).filter(Boolean);
-    const diagnostic = lines.filter((line) => /^(fatal|error|warning):/i.test(line));
-    const detail = (diagnostic.length ? diagnostic : lines.slice(-1)).join('\n');
-    throw new Error(detail || String(error?.message ?? error) || `git ${args.join(' ')} failed`);
+    const failure = gitError(error, args);
+    diagnosticListener?.({
+      args: [...args],
+      cwd,
+      durationMs: Date.now() - startedAt,
+      error: failure.message,
+    });
+    throw failure;
   }
+}
+
+function gitError(error: any, args: string[]): Error {
+  const stderr = String(error?.stderr ?? '').trim();
+  // Git reports progress on stderr too, so the diagnosis is the fatal/error line
+  // rather than whatever happened to be printed first.
+  const lines = stderr.split('\n').map((line) => line.trim()).filter(Boolean);
+  const diagnostic = lines.filter((line) => /^(fatal|error|warning):/i.test(line));
+  const detail = (diagnostic.length ? diagnostic : lines.slice(-1)).join('\n');
+  return new Error(detail || String(error?.message ?? error) || `git ${args.join(' ')} failed`);
 }
 
 /**
@@ -306,8 +347,15 @@ export function parseWorktreePorcelain(stdout: string, repoRoot: string): Worktr
     }
   };
 
-  for (const rawLine of stdout.split('\n')) {
-    const line = rawLine.trimEnd();
+  // `-z` makes every field NUL-delimited and inserts an empty field between
+  // records. Keep newline support for callers parsing output from older code.
+  const delimiter = stdout.includes('\0') ? '\0' : '\n';
+  for (const rawField of stdout.split(delimiter)) {
+    // `execFile` can preserve CRLF when parsing legacy, non-NUL output. Do not
+    // trim any other whitespace: it may be part of a valid worktree path.
+    const line = delimiter === '\n' && rawField.endsWith('\r')
+      ? rawField.slice(0, -1)
+      : rawField;
     if (line === '') {
       flush();
       continue;
@@ -323,6 +371,7 @@ export function parseWorktreePorcelain(stdout: string, repoRoot: string): Worktr
           path: value,
           repoRoot,
           detached: false,
+          bare: false,
           locked: false,
           prunable: false,
           isMain: first,
@@ -344,9 +393,15 @@ export function parseWorktreePorcelain(stdout: string, repoRoot: string): Worktr
           current.detached = true;
         }
         break;
+      case 'bare':
+        if (current) {
+          current.bare = true;
+        }
+        break;
       case 'locked':
         if (current) {
           current.locked = true;
+          current.lockReason = value || undefined;
         }
         break;
       case 'prunable':

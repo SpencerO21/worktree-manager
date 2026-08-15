@@ -103,6 +103,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "worktreeManager.showDiagnostics",
+        "title": "Show Diagnostics",
+        "category": "Worktrees",
+        "icon": "$(output)"
+      },
+      {
         "command": "worktreeManager.showAllRepositories",
         "title": "Show Worktrees From All Repositories",
         "category": "Worktrees",

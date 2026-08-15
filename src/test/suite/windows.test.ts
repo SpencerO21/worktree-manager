@@ -35,6 +35,7 @@ describe('open worktree windows', () => {
       repoRoot: '/repo/main',
       branch: 'feature',
       detached: false,
+      bare: false,
       locked: false,
       prunable: false,
       isMain: false,

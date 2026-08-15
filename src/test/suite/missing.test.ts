@@ -61,7 +61,7 @@ describe('worktrees whose directory is gone', () => {
   it('is reported as prunable by git until something clears it', () => {
     const worktreePath = abandonWorktree('demo-abandoned');
     try {
-      const parsed = parseWorktreePorcelain(git(['worktree', 'list', '--porcelain']), repo);
+      const parsed = parseWorktreePorcelain(git(['worktree', 'list', '--porcelain', '-z']), repo);
       const stale = parsed.find((worktree) => worktree.path === worktreePath);
 
       assert.ok(stale, 'git no longer lists the worktree');

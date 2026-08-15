@@ -1,11 +1,13 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { createWorktree } from './create';
-import { pruneWorktrees, removeWorktree, Worktree } from './git';
+import { WorktreeDiagnostics } from './diagnostics';
+import { gitVersion, pruneWorktrees, removeWorktree, Worktree } from './git';
 import { LifecycleManager } from './lifecycle';
 import { TerminalManager } from './terminals';
 import { SessionNode, WorktreeNode, WorktreeTreeProvider } from './tree';
 import { OpenWindowRegistry } from './windows';
+import { loadWorkspaceConfig } from './workspaceConfig';
 
 /**
  * VS Code can only point a window at another folder by reloading it, which tears
@@ -33,6 +35,7 @@ export interface WorktreeManagerApi {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<WorktreeManagerApi> {
+  const diagnostics = new WorktreeDiagnostics();
   const terminals = new TerminalManager();
   const lifecycle = new LifecycleManager(context, terminals);
   const openWindows = new OpenWindowRegistry(context.globalStorageUri);
@@ -45,7 +48,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   status.command = 'worktreeManager.switchWorktree';
-  context.subscriptions.push(terminals, view, status, provider, openWindows);
+  context.subscriptions.push(diagnostics, terminals, view, status, provider, openWindows);
 
   // Each marker update comes from one extension host. Watching the shared folder
   // lets every visible tree repaint as windows open and close, without re-running
@@ -152,6 +155,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
   };
 
   register('worktreeManager.refresh', refresh);
+
+  register('worktreeManager.showDiagnostics', async () => {
+    const [discovery, worktrees] = await Promise.all([
+      provider.getDiscoveryContext(),
+      provider.getWorktrees(),
+    ]);
+    let version: string;
+    try {
+      version = await gitVersion();
+    } catch (error) {
+      version = `unavailable — ${(error as Error).message}`;
+    }
+
+    const configSources = new Set<string>();
+    const configErrors = new Set<string>();
+    await Promise.all(
+      worktrees.map(async (worktree) => {
+        try {
+          const workspaceConfig = await loadWorkspaceConfig(worktree.path, worktree.repoRoot);
+          if (workspaceConfig.source) {
+            configSources.add(workspaceConfig.source);
+          }
+        } catch (error) {
+          configErrors.add(`${worktree.path}: ${(error as Error).message}`);
+        }
+      }),
+    );
+
+    diagnostics.show({
+      extensionVersion: String(context.extension.packageJSON.version ?? 'unknown'),
+      gitVersion: version,
+      scope: discovery.scope,
+      workspaceFolders: discovery.workspaceFolders,
+      searchPaths: discovery.searchPaths,
+      repositories: discovery.repositories,
+      configSources: [...configSources].sort(),
+      configErrors: [...configErrors].sort(),
+    });
+  });
 
   register('worktreeManager.showAllRepositories', () => setScope('searchPaths'));
   register('worktreeManager.showThisRepository', () => setScope('currentRepository'));
