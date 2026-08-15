@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { createWorktree } from './create';
+import { branchFromTask, createWorktree } from './create';
 import { WorktreeDiagnostics } from './diagnostics';
 import { gitVersion, pruneWorktrees, removeWorktree, Worktree } from './git';
 import { LifecycleManager } from './lifecycle';
@@ -311,17 +311,94 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
       return;
     }
     await refresh();
-    const setup = await lifecycle.setup(created);
-    if (!setup.ok) {
-      const choice = await vscode.window.showErrorMessage(
-        `Setup failed for ${path.basename(created)}. The worktree was kept so you can inspect and retry it.`,
-        'Open Anyway',
-      );
-      if (choice !== 'Open Anyway') {
-        return;
-      }
+    if (!(await prepareCreatedWorktree(created, lifecycle))) {
+      return;
     }
     await switchTo(created);
+  });
+
+  register('worktreeManager.startTask', async () => {
+    const task = await vscode.window.showInputBox({
+      title: 'Start Task in a New Worktree',
+      prompt: 'Describe the task or paste a GitHub issue or pull request URL',
+      placeHolder: 'Fix flaky setup state',
+    });
+    if (!task?.trim()) {
+      return;
+    }
+    const created = await createWorktree(await provider.getWorktrees(), {
+      initialBranch: branchFromTask(task),
+    });
+    if (!created) {
+      return;
+    }
+    await refresh();
+    if (!(await prepareCreatedWorktree(created, lifecycle))) {
+      return;
+    }
+
+    const actions = await vscode.window.showQuickPick(
+      [
+        { label: 'Open in a new window', value: 'open', picked: true },
+        { label: 'Run the app', value: 'run' },
+        { label: 'Start Codex with this task', value: 'codex' },
+        { label: 'Start Claude Code with this task', value: 'claude' },
+      ],
+      {
+        title: `Task worktree ${path.basename(created)} is ready`,
+        placeHolder: 'Choose any next actions',
+        canPickMany: true,
+      },
+    );
+    if (!actions) {
+      return;
+    }
+    for (const action of actions) {
+      if (action.value === 'run') {
+        await lifecycle.runApp(created);
+      } else if (action.value === 'codex') {
+        terminals.runAgent(
+          created,
+          'Codex',
+          commandWithPrompt(config().get<string>('codexCommand', 'codex'), task),
+        );
+      } else if (action.value === 'claude') {
+        terminals.runAgent(
+          created,
+          'Claude Code',
+          commandWithPrompt(config().get<string>('claudeCommand', 'claude'), task),
+        );
+      }
+    }
+    if (actions.some((action) => action.value === 'open')) {
+      await switchTo(created);
+    }
+  });
+
+  register('worktreeManager.migrateWorktreeChanges', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (!worktree) {
+      return;
+    }
+    const commands = await vscode.commands.getCommands(true);
+    if (!commands.includes('git.migrateWorktreeChanges')) {
+      void vscode.window.showInformationMessage(
+        'This VS Code version does not provide Git worktree migration.',
+      );
+      return;
+    }
+    await vscode.commands.executeCommand(
+      'git.migrateWorktreeChanges',
+      vscode.Uri.file(worktree.repoRoot),
+    );
+  });
+
+  register('worktreeManager.revealInSourceControl', async (node?: WorktreeNode) => {
+    const worktree = await targetWorktree(node);
+    if (worktree) {
+      await vscode.commands.executeCommand('workbench.view.scm');
+      await vscode.commands.executeCommand('git.openRepository', vscode.Uri.file(worktree.path));
+    }
   });
 
   register('worktreeManager.removeWorktree', async (node?: WorktreeNode) => {
@@ -505,6 +582,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
   await updateStatus(status, provider);
 
   return { getWorktrees: () => provider.getWorktrees(), refresh, terminals, lifecycle };
+}
+
+async function prepareCreatedWorktree(
+  worktreePath: string,
+  lifecycle: LifecycleManager,
+): Promise<boolean> {
+  const setup = await lifecycle.setup(worktreePath);
+  if (setup.ok) {
+    return true;
+  }
+  const choice = await vscode.window.showWarningMessage(
+    `Setup failed for ${path.basename(worktreePath)}. Open it anyway?`,
+    { modal: true, detail: 'Review the setup terminal for the failed command and its output.' },
+    'Open Anyway',
+  );
+  return choice === 'Open Anyway';
+}
+
+/** Quote a task as one argument for the user's default terminal shell. */
+function commandWithPrompt(command: string, task: string): string {
+  const prompt = task.replace(/\s+/g, ' ').trim();
+  if (process.platform === 'win32') {
+    return `${command} "${prompt.replace(/(["^&|<>])/g, '^$1')}"`;
+  }
+  return `${command} '${prompt.replace(/'/g, `'"'"'`)}'`;
 }
 
 /**

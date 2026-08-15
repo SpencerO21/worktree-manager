@@ -66,6 +66,12 @@
         "icon": "$(add)"
       },
       {
+        "command": "worktreeManager.startTask",
+        "title": "Start Task in New Worktree",
+        "category": "Worktrees",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "worktreeManager.switchWorktree",
         "title": "Switch Worktree",
         "category": "Worktrees",
@@ -185,6 +191,16 @@
         "category": "Worktrees"
       },
       {
+        "command": "worktreeManager.revealInSourceControl",
+        "title": "Reveal in Source Control",
+        "category": "Worktrees"
+      },
+      {
+        "command": "worktreeManager.migrateWorktreeChanges",
+        "title": "Migrate Worktree Changes with VS Code",
+        "category": "Worktrees"
+      },
+      {
         "command": "worktreeManager.copyPath",
         "title": "Copy Path",
         "category": "Worktrees"
@@ -207,6 +223,11 @@
         }
       ],
       "view/title": [
+        {
+          "command": "worktreeManager.startTask",
+          "when": "view == worktreeManager.tree",
+          "group": "navigation@0"
+        },
         {
           "command": "worktreeManager.createWorktree",
           "when": "view == worktreeManager.tree",
@@ -300,9 +321,19 @@
           "group": "3_misc@1"
         },
         {
-          "command": "worktreeManager.copyPath",
+          "command": "worktreeManager.revealInSourceControl",
           "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
           "group": "3_misc@2"
+        },
+        {
+          "command": "worktreeManager.migrateWorktreeChanges",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "3_misc@3"
+        },
+        {
+          "command": "worktreeManager.copyPath",
+          "when": "view == worktreeManager.tree && viewItem =~ /^worktree/",
+          "group": "3_misc@4"
         },
         {
           "command": "worktreeManager.removeWorktree",

@@ -23,6 +23,13 @@ opens each one in its own window with a click.
   checked out, new ones are created off a base you pick), proposes a directory from
   `worktreeManager.newWorktreePath`, runs `git worktree add`, then opens it in a new window so
   the window you started from is left as it was.
+- **Start from the task.** Paste an issue or pull-request URL, or describe the work. TreeHugger
+  proposes an editable branch name, creates and sets up the worktree, then can open it, run the
+  app, and launch Codex or Claude Code with the task prompt.
+- **Keep local configuration.** Files matched by VS Code's `git.worktreeIncludeFiles` setting are
+  copied from the primary checkout after creation, including ignored `.env` files and tool caches.
+- **Use VS Code's Git UI.** A worktree can be revealed in Source Control, and supported VS Code
+  versions can hand off change migration to the built-in Git worktree command.
 - **Terminals only when you ask.** Nothing is opened automatically. `Open Terminal` gives a
   worktree a terminal without switching the window, and starting an agent runs in it.
 - **Setup once, run with one click.** A repository can commit setup, teardown, and run commands.
@@ -44,6 +51,7 @@ opens each one in its own window with a click.
 | Command | What it does |
 | --- | --- |
 | `Worktrees: New Worktree` | Create a worktree and open it in a new window |
+| `Worktrees: Start Task in New Worktree` | Derive an editable branch from a task, create and set up the worktree, then choose launch actions |
 | `Worktrees: Switch Worktree` | Quick pick over the listed worktrees |
 | `Worktrees: Open Terminal` | Terminal for a worktree, without switching the window |
 | `Worktrees: Run App` | Run the repository's configured app command in a dedicated terminal |
@@ -54,6 +62,8 @@ opens each one in its own window with a click.
 | `Worktrees: Show Diagnostics` | Open a sanitized report of discovery roots, lifecycle config sources, Git commands, failures, and timings |
 | `Worktrees: Filter Worktrees` / `Clear Worktree Filter` | Narrow the tree to open, dirty, running, missing, or stale worktrees |
 | `Worktrees: Toggle Pin` | Keep a worktree or repository above its siblings |
+| `Worktrees: Reveal in Source Control` | Open VS Code's Source Control view for a worktree |
+| `Worktrees: Migrate Worktree Changes with VS Code` | Hand off uncommitted-change migration to VS Code's built-in Git command when available |
 
 A status bar entry shows the current worktree and opens the switcher.
 

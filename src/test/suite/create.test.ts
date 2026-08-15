@@ -1,7 +1,9 @@
 import * as assert from 'assert';
+import { execFileSync } from 'child_process';
+import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { resolveWorktreePath } from '../../create';
+import { branchFromTask, copyIncludedFiles, resolveWorktreePath } from '../../create';
 
 const repo = { root: '/Users/someone/worktree-manager', name: 'worktree-manager' };
 
@@ -23,5 +25,47 @@ describe('resolveWorktreePath', () => {
     const resolved = resolveWorktreePath('{repoParent}/{repoName}-{branch}', repo, 'test');
 
     assert.strictEqual(resolved, '/Users/someone/worktree-manager-test');
+  });
+});
+
+describe('task-first creation', () => {
+  it('derives editable branch names from tasks and GitHub URLs', () => {
+    assert.strictEqual(branchFromTask('Fix flaky setup state'), 'task/fix-flaky-setup-state');
+    assert.strictEqual(
+      branchFromTask('https://github.com/acme/repo/issues/42'),
+      'task/issue-42',
+    );
+    assert.strictEqual(
+      branchFromTask('https://github.com/acme/repo/pull/17'),
+      'task/pr-17',
+    );
+  });
+
+  it('copies only ignored files matched by VS Code include patterns', async () => {
+    const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'worktree-copy-source-'));
+    const target = await fsp.mkdtemp(path.join(os.tmpdir(), 'worktree-copy-target-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: root });
+      await fsp.writeFile(path.join(root, '.gitignore'), '.env\ncache/\nignored.txt\n');
+      await fsp.writeFile(path.join(root, '.env'), 'PORT=1234\n');
+      await fsp.writeFile(path.join(root, 'ignored.txt'), 'not selected\n');
+      await fsp.mkdir(path.join(root, 'cache', 'nested'), { recursive: true });
+      await fsp.writeFile(path.join(root, 'cache', 'nested', 'data.txt'), 'cached\n');
+
+      const copied = await copyIncludedFiles(root, target, ['.env', 'cache/**']);
+
+      assert.strictEqual(copied, 2);
+      assert.strictEqual(await fsp.readFile(path.join(target, '.env'), 'utf8'), 'PORT=1234\n');
+      assert.strictEqual(
+        await fsp.readFile(path.join(target, 'cache', 'nested', 'data.txt'), 'utf8'),
+        'cached\n',
+      );
+      await assert.rejects(fsp.stat(path.join(target, 'ignored.txt')));
+    } finally {
+      await Promise.all([
+        fsp.rm(root, { recursive: true, force: true }),
+        fsp.rm(target, { recursive: true, force: true }),
+      ]);
+    }
   });
 });
