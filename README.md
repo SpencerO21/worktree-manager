@@ -46,6 +46,7 @@ opens each one in its own window with a click.
 | `Worktrees: Remove Worktree` | `git worktree remove`, after a confirmation (branch is kept) |
 | `Worktrees: Remove Missing Worktrees` | Clear git's record of every worktree whose directory is gone |
 | `Worktrees: Start Claude Code Here` / `Start Codex Here` | Launch an agent in the worktree |
+| `Worktrees: Show Diagnostics` | Open a sanitized report of discovery roots, lifecycle config sources, Git commands, failures, and timings |
 
 A status bar entry shows the current worktree and opens the switcher.
 

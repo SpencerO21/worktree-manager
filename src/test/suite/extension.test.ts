@@ -50,6 +50,7 @@ describe('TreeHugger - Worktree Manager', () => {
       'worktreeManager.setupWorktree',
       'worktreeManager.removeWorktree',
       'worktreeManager.refresh',
+      'worktreeManager.showDiagnostics',
     ]) {
       assert.ok(commands.includes(command), `${command} is not registered`);
     }

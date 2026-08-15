@@ -1,6 +1,12 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { findRepositories, listWorktrees, repoRootFor, Worktree } from './git';
+import {
+  expandHome,
+  findRepositories,
+  listWorktrees,
+  repoRootFor,
+  Worktree,
+} from './git';
 import { AgentSession, CodexIndex, sessionsForWorktree } from './sessions';
 import { OpenWindowRegistry } from './windows';
 
@@ -20,9 +26,11 @@ export class WorktreeNode extends vscode.TreeItem {
         : vscode.TreeItemCollapsibleState.Collapsed,
     );
 
-    const branch = worktree.detached
-      ? `detached @ ${worktree.head?.slice(0, 8) ?? '?'}`
-      : (worktree.branch ?? '(no branch)');
+    const branch = worktree.bare
+      ? 'bare repository'
+      : worktree.detached
+        ? `detached @ ${worktree.head?.slice(0, 8) ?? '?'}`
+        : (worktree.branch ?? '(no branch)');
 
     this.description = missing
       ? `${branch} • missing`
@@ -60,7 +68,9 @@ export class WorktreeNode extends vscode.TreeItem {
             ? '- Open in another VS Code window'
             : '',
         worktree.isMain ? '- Primary working tree' : '',
-        worktree.locked ? '- 🔒 Locked' : '',
+        worktree.locked
+          ? `- 🔒 Locked${worktree.lockReason ? `: ${worktree.lockReason}` : ''}`
+          : '',
         missing
           ? `- ⚠️ Directory is gone${worktree.prunableReason ? ` (${worktree.prunableReason})` : ''}. Only git's record of it is left — click to clear it.`
           : '',
@@ -123,6 +133,13 @@ export class MessageNode extends vscode.TreeItem {
 
 type Node = WorktreeNode | SessionNode | MessageNode;
 
+export interface WorktreeDiscoveryContext {
+  scope: 'currentRepository' | 'searchPaths';
+  workspaceFolders: string[];
+  searchPaths: string[];
+  repositories: string[];
+}
+
 export class WorktreeTreeProvider implements vscode.TreeDataProvider<Node>, vscode.Disposable {
   private readonly emitter = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
@@ -152,25 +169,49 @@ export class WorktreeTreeProvider implements vscode.TreeDataProvider<Node>, vsco
     return this.worktrees;
   }
 
+  /** The exact roots and repositories used by discovery, for user diagnostics. */
+  getDiscoveryContext(): Promise<WorktreeDiscoveryContext> {
+    return this.discoveryContext();
+  }
+
   private async discover(): Promise<Worktree[]> {
+    const context = await this.discoveryContext();
     const config = vscode.workspace.getConfiguration('worktreeManager');
     const options = { prune: config.get<boolean>('pruneMissingWorktrees', true) };
-    const folders = (vscode.workspace.workspaceFolders ?? [])
+    return listWorktrees(context.repositories, options);
+  }
+
+  private async discoveryContext(): Promise<WorktreeDiscoveryContext> {
+    const config = vscode.workspace.getConfiguration('worktreeManager');
+    const workspaceFolders = (vscode.workspace.workspaceFolders ?? [])
       .filter((folder) => folder.uri.scheme === 'file')
-      .map((folder) => folder.uri.fsPath);
+      .map((folder) => path.resolve(folder.uri.fsPath));
+    const searchPaths = config
+      .get<string[]>('searchPaths', [])
+      .map((searchPath) => path.resolve(expandHome(searchPath)));
+    const scope = config.get<string>('scope', 'currentRepository') === 'searchPaths'
+      ? 'searchPaths'
+      : 'currentRepository';
 
     // Scoped to the open repository, discovery is just its own worktree family —
     // `git worktree list` reports every sibling from any one of them.
-    if (config.get<string>('scope', 'currentRepository') === 'currentRepository') {
-      const roots = await Promise.all(folders.map(repoRootFor));
-      return listWorktrees(
-        [...new Set(roots.filter((root): root is string => !!root))],
-        options,
-      );
+    if (scope === 'currentRepository') {
+      const roots = await Promise.all(workspaceFolders.map(repoRootFor));
+      return {
+        scope,
+        workspaceFolders,
+        searchPaths,
+        repositories: [...new Set(roots.filter((root): root is string => !!root))].sort(),
+      };
     }
 
-    const roots = new Set<string>([...config.get<string[]>('searchPaths', []), ...folders]);
-    return listWorktrees(await findRepositories([...roots]), options);
+    const roots = new Set<string>([...searchPaths, ...workspaceFolders]);
+    return {
+      scope,
+      workspaceFolders,
+      searchPaths,
+      repositories: (await findRepositories([...roots])).sort(),
+    };
   }
 
   dispose(): void {
