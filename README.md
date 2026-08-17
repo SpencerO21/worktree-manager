@@ -3,6 +3,13 @@
 A VS Code extension that lists the git worktrees of the repository you are working in and
 opens each one in its own window with a click.
 
+## What's new in 1.0.1
+
+- The current worktree now has a persistent green check icon, green label decoration, and `✓`
+  badge, so it remains obvious even when the row description is clipped.
+- Ignored files configured through VS Code's resource-scoped `git.worktreeIncludeFiles` setting
+  are resolved reliably from the repository, workspace folder, or window configuration.
+
 ## Features
 
 - **The worktrees of this repository.** Discovered from the folder open in the window, whether
@@ -13,7 +20,8 @@ opens each one in its own window with a click.
   terminals, and agents untouched. To replace the folder in the current window instead,
   right-click the worktree and specifically choose **Open in This Window**.
 - **See which windows are open.** A worktree that is open in any VS Code window gets a green
-  open-folder icon and an `open` label; the worktree in the active window is labeled `current`.
+  open-folder icon and an `open` label. The worktree in the active window gets a green check icon,
+  green label decoration, `✓` badge, and a `current` label when space permits.
 - **See what needs attention.** Rows summarize dirty files, upstream divergence, setup problems,
   and running apps or agents. Tooltips include staged/untracked counts and the latest commit.
 - **Stay organized at scale.** The all-repositories view groups worktrees by repository. Filter by
@@ -26,8 +34,10 @@ opens each one in its own window with a click.
 - **Start from the task.** Paste an issue or pull-request URL, or describe the work. TreeHugger
   proposes an editable branch name, creates and sets up the worktree, then can open it, run the
   app, and launch Codex or Claude Code with the task prompt.
-- **Keep local configuration.** Files matched by VS Code's `git.worktreeIncludeFiles` setting are
-  copied from the primary checkout after creation, including ignored `.env` files and tool caches.
+- **Keep local configuration.** Files matched by VS Code's resource-scoped
+  `git.worktreeIncludeFiles` setting are copied from the primary checkout after creation,
+  including ignored `.env` files and tool caches. TreeHugger honors repository, workspace-folder,
+  and window-level values.
 - **Use VS Code's Git UI.** A worktree can be revealed in Source Control, and supported VS Code
   versions can hand off change migration to the built-in Git worktree command.
 - **Terminals only when you ask.** Nothing is opened automatically. `Open Terminal` gives a
@@ -103,6 +113,15 @@ A status bar entry shows the current worktree and opens the switcher.
 | `worktreeManager.sortBy` | `name` | Sort worktrees by name, recent commit activity, or status |
 | `worktreeManager.showSessions` | `true` | List agent chats under each worktree |
 | `worktreeManager.claudeCommand` / `codexCommand` | `claude` / `codex` | Agent launch commands |
+
+TreeHugger also honors VS Code's built-in `git.worktreeIncludeFiles` array. For example, this
+workspace setting copies ignored environment files into every newly created worktree:
+
+```json
+{
+  "git.worktreeIncludeFiles": [".env", ".env.local", ".tool-cache/**"]
+}
+```
 
 ## Automatic worktree setup and local apps
 
