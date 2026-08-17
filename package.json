@@ -1,8 +1,8 @@
 {
   "name": "spencers-worktree-manager",
   "displayName": "TreeHugger - Worktree Manager",
-  "description": "See, create, and open Git worktrees in dedicated VS Code windows.",
-  "version": "1.0.0",
+  "description": "Create, monitor, run, sync, and safely finish Git worktrees from VS Code.",
+  "version": "1.0.1",
   "publisher": "spencer021",
   "icon": "media/treehugger.png",
   "private": true,

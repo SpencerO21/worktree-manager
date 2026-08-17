@@ -217,9 +217,7 @@ export async function createWorktree(
     return undefined;
   }
 
-  const includePatterns = vscode.workspace
-    .getConfiguration('git', vscode.Uri.file(repo.root))
-    .get<string[]>('worktreeIncludeFiles', []);
+  const includePatterns = worktreeIncludePatterns(repo.root);
   if (includePatterns.length > 0) {
     try {
       const copied = await copyIncludedFiles(repo.root, worktreePath, includePatterns);
@@ -236,6 +234,24 @@ export async function createWorktree(
   }
 
   return worktreePath;
+}
+
+/** Resolve VS Code's resource-scoped include setting across canonical/folder URI boundaries. */
+export function worktreeIncludePatterns(repoRoot: string): string[] {
+  const repositoryUri = vscode.Uri.file(repoRoot);
+  const folder = vscode.workspace.getWorkspaceFolder(repositoryUri);
+  const resources: Array<vscode.Uri | undefined> = [repositoryUri, folder?.uri, undefined];
+  const patterns = new Set<string>();
+  for (const resource of resources) {
+    for (const pattern of vscode.workspace
+      .getConfiguration('git', resource)
+      .get<string[]>('worktreeIncludeFiles', [])) {
+      if (pattern.trim()) {
+        patterns.add(pattern.trim());
+      }
+    }
+  }
+  return [...patterns];
 }
 
 /** Apply VS Code's `git.worktreeIncludeFiles` semantics to a TreeHugger worktree. */

@@ -25,6 +25,7 @@ import { LifecycleManager } from './lifecycle';
 import { TerminalManager } from './terminals';
 import {
   ActiveAgentNode,
+  CurrentWorktreeDecorationProvider,
   RepositoryNode,
   ServiceNode,
   SessionNode,
@@ -67,6 +68,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
   activeOpenWindows = openWindows;
   await openWindows.start(currentWorkspacePaths());
   const provider = new WorktreeTreeProvider(openWindows, lifecycle, terminals, context);
+  const currentDecorations = new CurrentWorktreeDecorationProvider();
   const view = vscode.window.createTreeView('worktreeManager.tree', {
     treeDataProvider: provider,
   });
@@ -80,6 +82,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
     view,
     status,
     provider,
+    currentDecorations,
+    vscode.window.registerFileDecorationProvider(currentDecorations),
     openWindows,
     terminals.onDidChangeState((worktreePath) => provider.refreshRuntime(worktreePath)),
     lifecycle.onDidChangeState((worktreePath) => provider.refreshRuntime(worktreePath)),
@@ -907,6 +911,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Worktr
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      currentDecorations.refresh();
       void openWindows.setWorkspacePaths(currentWorkspacePaths()).then(refresh);
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
