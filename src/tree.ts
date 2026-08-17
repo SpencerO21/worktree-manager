@@ -13,8 +13,12 @@ export class WorktreeNode extends vscode.TreeItem {
     // A worktree git has flagged as prunable has nothing left to open, so it is
     // listed only so it can be cleared — flat, and clicking it offers removal.
     const missing = worktree.prunable;
+    const name = path.basename(worktree.path) || worktree.path;
+    const label: string | vscode.TreeItemLabel = isCurrent
+      ? { label: name, highlights: [[0, name.length]] }
+      : name;
     super(
-      path.basename(worktree.path) || worktree.path,
+      label,
       missing
         ? vscode.TreeItemCollapsibleState.None
         : vscode.TreeItemCollapsibleState.Collapsed,
